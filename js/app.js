@@ -504,7 +504,7 @@ const App = (() => {
     }
     function caseCard(c) {
       const link = c.per_case
-        ? `<a class="osha" href="${c.url}" target="_blank" rel="noopener">View at OSHA</a>`
+        ? `<a class="osha" href="${c.url}" target="_blank" rel="noopener" title="Opens the OSHA IMIS page; if OSHA answers with a server error, its IMIS backend is down, try again later">View at OSHA</a> <span class="muted small">${esc(c.url_note)}</span>`
         : `<span class="osha muted">No per-case page: ${esc(c.url_note)}, <a href="${c.url}" target="_blank" rel="noopener">download page</a></span>`;
       const student = c.student_mechanism
         ? `<span>Student (corpus run): <b>${mechName[c.student_mechanism]}</b>${c.student_p != null ? ` (p ${fmt.dec(c.student_p, 2)})` : ''}${c.student_mechanism !== c.mechanism ? ' <span class="tag">differs</span>' : ''}</span>` : '';
