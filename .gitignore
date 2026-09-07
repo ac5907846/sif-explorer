@@ -1,0 +1,7 @@
+NOTES.md
+build_data.py
+tests/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

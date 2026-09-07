@@ -1,0 +1,56 @@
+{
+ "mechanism": [
+  "FALL_LOWER",
+  "FALL_SAME",
+  "STRUCK_BY",
+  "STRUCK_AGAINST",
+  "CAUGHT",
+  "ELECTRICAL",
+  "OVEREXERTION",
+  "TRANSPORT",
+  "TEMPERATURE",
+  "HARMFUL_SUBSTANCE",
+  "FIRE_EXPLOSION",
+  "VIOLENCE_ANIMAL",
+  "OTHER_UNKNOWN"
+ ],
+ "energy_source": [
+  "GRAVITY",
+  "MOTION",
+  "MECHANICAL",
+  "ELECTRICAL",
+  "PRESSURE",
+  "TEMPERATURE",
+  "CHEMICAL",
+  "BIOLOGICAL",
+  "RADIATION",
+  "SOUND",
+  "UNKNOWN"
+ ],
+ "high_energy": [
+  "-1",
+  "0",
+  "1"
+ ],
+ "max_length": 256,
+ "cls_id": 101,
+ "sep_id": 102,
+ "unk_id": 100,
+ "pad_id": 0,
+ "normalizer": {
+  "type": "BertNormalizer",
+  "clean_text": true,
+  "handle_chinese_chars": true,
+  "strip_accents": null,
+  "lowercase": true
+ },
+ "inputs": [
+  "input_ids",
+  "attention_mask"
+ ],
+ "outputs": [
+  "p_mechanism",
+  "p_energy",
+  "p_high_energy"
+ ]
+}

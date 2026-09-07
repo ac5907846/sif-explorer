@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Which minor injuries matter? Mechanism-specific severity escalation in US construction</title>
+<meta name="description" content="Companion web app: escalation ratios across three OSHA injury tiers, high-energy exposure, SIF potential, and an in-browser narrative coder.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="inner">
+    <div class="brand">
+      <h1>Which minor injuries matter?</h1>
+      <span class="sub">Mechanism-specific severity escalation in US construction from three national injury tiers. Companion app to the paper.</span>
+    </div>
+    <nav class="tabs" id="nav"></nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="loading-screen" id="loading">Loading data…</div>
+
+  <section class="page" id="overview" data-title="Overview">
+    <h2>Overview</h2>
+    <div id="overview-body"></div>
+  </section>
+
+  <section class="page" id="explorer" data-title="Escalation explorer">
+    <h2>Escalation explorer</h2>
+    <p class="lead">The escalation ratio of a category is its share among severe or fatal cases divided by its share among recordables. A ratio of 1 means the category keeps the same weight across tiers; 30 means it is thirty times as prevalent among fatalities as among recordable injuries. Intervals are 95% bootstrap intervals.</p>
+    <div id="explorer-body"></div>
+  </section>
+
+  <section class="page" id="sensitivity" data-title="Sensitivity">
+    <h2>Sensitivity</h2>
+    <p class="lead">The ranking of mechanisms holds under alternative scopes (all states, a common 2023 to 2025 window, one NAICS group versus the rest) and under assumed undercounting of minor recordable injuries.</p>
+    <div id="sensitivity-body"></div>
+  </section>
+
+  <section class="page" id="highenergy" data-title="High energy">
+    <h2>High-energy exposure by tier</h2>
+    <p class="lead">Each narrative received a high-energy flag (energy above the threshold used in serious injury and fatality precursor work). The share of high-energy cases rises steeply from recordable to severe to fatal, and it rises inside almost every mechanism.</p>
+    <div id="highenergy-body"></div>
+  </section>
+
+  <section class="page" id="within" data-title="Within recordables">
+    <h2>Severity within the recordable tier</h2>
+    <p class="lead">Days away from work is the severity signal available inside the recordable tier. It orders mechanisms very differently from the fatal escalation ratio: the mechanisms that cost the most days are not the ones that kill.</p>
+    <div id="within-body"></div>
+  </section>
+
+  <section class="page" id="sif" data-title="SIF potential">
+    <h2>SIF potential model</h2>
+    <p class="lead">A gradient boosting model (LightGBM, three classes, class balanced, 5-fold cross-validation) predicts the tier of a case from narrative-derived features only: mechanism, energy source, high-energy flag, fall height and direct-control status. The SIF potential index is the balanced probability of severe or fatal divided by the probability of recordable.</p>
+    <div id="sif-body"></div>
+  </section>
+
+  <section class="page" id="context" data-title="Context">
+    <h2>Contextual patterns</h2>
+    <p class="lead">When and to whom injuries happen: hours into the shift (recordable tier only), month, weekday, occupation and establishment size.</p>
+    <div id="context-body"></div>
+  </section>
+
+  <section class="page" id="establishments" data-title="Establishments">
+    <h2>Establishment linkage</h2>
+    <p class="lead">Severe injury reports from 2023 to 2025 were matched by employer name and location to ITA establishments. Among establishments with at least three recordables, the number of recordables does not predict whether the establishment also reported a severe injury, but the high-energy share of its recordables does.</p>
+    <div id="establishments-body"></div>
+  </section>
+
+  <section class="page" id="models" data-title="Models">
+    <h2>Narrative coders</h2>
+    <p class="lead">Accuracy of the harmonization on 241 gold-labeled test narratives: legacy OSHA codes, a zero-shot LLM, the fine-tuned teacher LLM, and the distilled bge-small student that runs in this browser.</p>
+    <div id="models-body"></div>
+  </section>
+
+  <section class="page" id="cases" data-title="Cases">
+    <h2>Case sample with links to the OSHA records</h2>
+    <p class="lead">A random sample of coded narratives, up to 30 per mechanism and tier, drawn with a fixed seed from the main analytic scope. Every fatal case links to its OSHA accident investigation page, and severe cases that opened an inspection link to that inspection. The Severe Injury Reports and the ITA case detail have no per-case page, so those cards give the dataset row ID and the download page instead. Each card also shows the teacher label used in the paper, the student prediction from the corpus run, and a button that codes the same text in your browser.</p>
+    <div id="cases-body"></div>
+  </section>
+
+  <section class="page" id="tool" data-title="Tool">
+    <h2>Narrative coder and escalation lookup</h2>
+    <p class="lead">Paste an incident narrative. The distilled model codes its mechanism, energy source and high-energy flag in your browser; the app then looks up the escalation ratios and the SIF potential index for that combination. You can override every field.</p>
+    <div id="tool-body"></div>
+  </section>
+</main>
+
+<footer>
+  <div>Data: OSHA Injury Tracking Application Form 301 case detail (2023 to 2025), OSHA Severe Injury Reports (2015 to 2025), OSHA IMIS fatality investigations (2015 to 2025), construction (NAICS 23). All narratives are public records. Charts read from <code>data/*.json</code> generated by <code>build_data.py</code> from the analysis outputs.</div>
+  <div style="margin-top:.4rem">This site does not determine OSHA recordability or regulatory compliance. The narrative coder runs entirely in the browser; nothing you type is uploaded.</div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="js/tokenizer.js"></script>
+<script src="js/model.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
