@@ -21,6 +21,24 @@ const Charts = (() => {
     return ch;
   }
   function resizeAll() { instances.forEach(c => c.resize()); }
+  /* A bare tracked instance for charts that manage their own option (the map with its timeline). */
+  function init(el) {
+    if (typeof el === 'string') el = document.getElementById(el);
+    let ch = instances.get(el);
+    if (!ch) { ch = echarts.init(el, null, { renderer: 'canvas' }); instances.set(el, ch); }
+    return ch;
+  }
+
+  /* Albers equal-area conic projection for the contiguous United States (standard parallels 29.5 and 45.5, origin 96 W, 23 N).
+     Returns screen-like coordinates (y down) as ECharts expects from a custom geo projection. */
+  function albersUSA() {
+    const rad = Math.PI / 180, p1 = 29.5 * rad, p2 = 45.5 * rad, l0 = -96 * rad, f0 = 23 * rad;
+    const n = (Math.sin(p1) + Math.sin(p2)) / 2, C = Math.cos(p1) ** 2 + 2 * n * Math.sin(p1), r0 = Math.sqrt(C - 2 * n * Math.sin(f0)) / n;
+    return {
+      project([lon, lat]) { const r = Math.sqrt(C - 2 * n * Math.sin(lat * rad)) / n, t = n * (lon * rad - l0); return [r * Math.sin(t), -(r0 - r * Math.cos(t))]; },
+      unproject([x, y]) { const yy = -y, r = Math.sqrt(x * x + (r0 - yy) ** 2), t = Math.atan2(x, r0 - yy); return [(l0 + t / n) / rad, Math.asin((C - r * r * n * n) / (2 * n)) / rad]; },
+    };
+  }
 
   function tooltipBox() {
     return { backgroundColor: '#fff', borderColor: '#000', borderWidth: 1, textStyle: { color: '#000', fontSize: 12 }, extraCssText: 'box-shadow: none; border-radius: 0;' };
@@ -100,7 +118,7 @@ const Charts = (() => {
   }
 
   /* Lines over an ordered x. series: [{name, data:[number], color, band:[[lo,hi],...], symbol}] */
-  function lines({ el, x, series, valueName = '', min, max, log = false, valueFormatter, tooltipFormatter, height, xName, markLine, endLabels = false, legendShow = true }) {
+  function lines({ el, x, series, valueName = '', min, max, log = false, valueFormatter, tooltipFormatter, height, xName, markLine, markArea, endLabels = false, legendShow = true, animationDuration, xLabelInterval, xLabelFormatter, grid }) {
     const out = [];
     series.forEach((sr, k) => {
       const c = LINE[sr.color] || sr.color;
@@ -114,14 +132,15 @@ const Charts = (() => {
         emphasis: { focus: 'series', lineStyle: { width: 3 } },
         endLabel: endLabels ? { show: true, formatter: p => p.seriesName, color: '#000', fontSize: 11, distance: 6 } : undefined,
         labelLayout: endLabels ? { moveOverlap: 'shiftY' } : undefined,
-        markLine: markLine && k === 0 ? markLine : undefined });
+        markLine: markLine && k === 0 ? markLine : undefined, markArea: markArea && k === 0 ? markArea : undefined });
     });
     const names = series.map(s => s.name);
     return make(el, {
       tooltip: Object.assign({ trigger: 'axis', formatter: tooltipFormatter, axisPointer: { type: 'line', lineStyle: { color: '#000' } } }, tooltipBox()),
       legend: legendShow && series.length > 1 ? legend({ data: names }) : undefined,
-      grid: { left: 60, right: endLabels ? 150 : 24, top: legendShow && series.length > 1 ? 36 : 16, bottom: 48 },
-      xAxis: catAxis(x, { boundaryGap: false, name: xName, nameLocation: 'middle', nameGap: 28 }),
+      grid: Object.assign({ left: 60, right: endLabels ? 150 : 24, top: legendShow && series.length > 1 ? 36 : 16, bottom: 48 }, grid || {}),
+      animationDuration: animationDuration || 350, animationEasing: animationDuration ? 'linear' : 'cubicOut',
+      xAxis: catAxis(x, { boundaryGap: false, name: xName, nameLocation: 'middle', nameGap: 28, axisLabel: { color: '#000', interval: xLabelInterval == null ? 0 : xLabelInterval, formatter: xLabelFormatter } }),
       yAxis: valueAxis({ log, name: valueName, min: log ? (min || 0.001) : min, max, formatter: valueFormatter || (log ? fmtLogTick : undefined) }),
       series: out,
     }, height);
@@ -180,5 +199,5 @@ const Charts = (() => {
     return String(v).replace(/^0\./, '.');
   }
 
-  return { make, resizeAll, bars, dotInterval, dots, lines, scatter, heatmap, FILL, LINE, TIER_COLOR, clampLog, fmtLogTick };
+  return { make, init, resizeAll, albersUSA, bars, dotInterval, dots, lines, scatter, heatmap, tooltipBox, FILL, LINE, TIER_COLOR, clampLog, fmtLogTick };
 })();

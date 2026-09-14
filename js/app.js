@@ -1,7 +1,8 @@
-/* Application: loads data/*.json, routes the top navigation, renders each page and the narrative tool. */
+/* Application: loads data/*.json lazily per page, routes the top navigation, renders each page (the map first) and the narrative tool. */
 'use strict';
 
 const App = (() => {
+  const VERSION = '20260914';    // cache-busting query string for every JSON fetch; bump when data/*.json changes
   const D = {};                  // loaded JSON by name
   const rendered = new Set();    // pages already rendered
   const TIERS = ['recordable', 'severe', 'fatal'];
@@ -41,9 +42,26 @@ const App = (() => {
   }
   const segValue = id => el(id).querySelector('button.on').dataset.v;
   function tile(value, label, color) { return `<div class="tile ${color || ''}"><div class="value">${value}</div><div class="label">${label}</div></div>`; }
+  /* Small info icon whose tooltip (HTML) opens on hover or click; `label` is the accessible name. */
+  function info(text, label) { return `<span class="info-wrap"><button type="button" class="info" aria-label="${esc(label || 'More information')}">i</button><span class="tip">${text}</span></span>`; }
   function card(title, chartId, note, cls) {
-    return `<div class="card"><h3>${title}</h3><div id="${chartId}" class="chart ${cls || ''}"></div>${note ? `<div class="note">${note}</div>` : ''}</div>`;
+    return `<div class="card"><h3>${title}${note ? info(note, 'About this chart') : ''}</h3><div id="${chartId}" class="chart ${cls || ''}"></div></div>`;
   }
+  /* Tooltip placement: keep the popover inside the viewport; click toggles a pinned state, a click elsewhere closes it. */
+  function placeTip(wrap) {
+    const tip = wrap.querySelector(':scope > .tip'); if (!tip) return;
+    tip.classList.remove('right', 'above'); tip.style.display = 'block';
+    const r = tip.getBoundingClientRect();
+    if (r.right > window.innerWidth - 8) tip.classList.add('right');
+    if (r.bottom > window.innerHeight - 8 && r.top > r.height + 40) tip.classList.add('above');
+    tip.style.display = '';
+  }
+  document.addEventListener('mouseover', e => { const w = e.target.closest && e.target.closest('.info-wrap'); if (w) placeTip(w); });
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('.info-wrap > button');
+    document.querySelectorAll('.info-wrap.open').forEach(w => { if (!b || w !== b.parentElement) w.classList.remove('open'); });
+    if (b) { const w = b.parentElement; w.classList.toggle('open'); if (w.classList.contains('open')) placeTip(w); }
+  });
 
   /* ---------------------------------------------------------------- provenance line: OSHA product, filter, script, n, download month */
   const SCRIPT = {
@@ -57,52 +75,184 @@ const App = (() => {
     const P = D.summary.provenance;
     const src = (o.src || ['ita', 'sir', 'imis']).map(k => `<a href="${P[k].url}" target="_blank" rel="noopener">${esc(P[k].product)}</a> (${esc(P[k].files)})`).join('; ');
     const scripts = [].concat(o.script || []).map(s => `<code>${esc(s)}</code>`).join(', ');
-    return `<div class="prov">Source: ${src}. Scope: ${esc(o.filter || P.scope)}.${o.n != null ? ` n = ${typeof o.n === 'number' ? fmt.int(o.n) : esc(o.n)}.` : ''}${scripts ? ` Script in the repository: ${scripts}.` : ''} Data downloaded ${esc(P.downloaded)}.${o.note ? ' ' + esc(o.note) : ''}</div>`;
+    const text = `Source: ${src}. Scope: ${esc(o.filter || P.scope)}.${o.n != null ? ` n = ${typeof o.n === 'number' ? fmt.int(o.n) : esc(o.n)}.` : ''}${scripts ? ` Script in the <a href="${P.repository}" target="_blank" rel="noopener">repository</a>: ${scripts}.` : ''} Data downloaded ${esc(P.downloaded)}.${o.note ? ' ' + esc(o.note) : ''}`;
+    return `<div class="prov-row"><span class="info-wrap"><button type="button" class="source" aria-label="Data source and provenance">Source</button><span class="tip">${text}</span></span></div>`;
   }
   function provAfter(chartId, o) { const c = el(chartId).closest('.card'); if (c) c.insertAdjacentHTML('beforeend', prov(o)); }
   const scopeN = () => { const sc = D.summary.scope_counts; return `${fmt.int(sc.recordable)} recordable, ${fmt.int(sc.severe)} severe, ${fmt.int(sc.fatal)} fatal`; };
 
-  /* ---------------------------------------------------------------- data loading and routing */
-  const FILES = ['summary', 'labels', 'escalation', 'high_energy', 'within_recordable', 'sif', 'sif_lookup', 'context', 'establishments', 'models', 'examples'];
-  const PAGES = ['overview', 'explorer', 'sensitivity', 'highenergy', 'within', 'sif', 'context', 'establishments', 'models', 'cases', 'tool'];
-  const RENDER = { overview: renderOverview, explorer: renderExplorer, sensitivity: renderSensitivity, highenergy: renderHighEnergy, within: renderWithin,
+  /* ---------------------------------------------------------------- data loading (lazy, per page) and routing */
+  const PAGES = ['map', 'overview', 'explorer', 'sensitivity', 'highenergy', 'within', 'sif', 'context', 'establishments', 'models', 'cases', 'tool'];
+  const INITIAL = ['summary', 'labels', 'us_states', 'state_years', 'monthly'];   // everything the Map page needs, nothing else
+  const PAGE_FILES = { map: [], overview: ['escalation'], explorer: ['escalation'], sensitivity: ['escalation'], highenergy: ['high_energy'], within: ['within_recordable', 'escalation'],
+    sif: ['sif'], context: ['context'], establishments: ['establishments'], models: ['models'], cases: ['cases_sample'], tool: ['escalation', 'high_energy', 'sif_lookup', 'examples'] };
+  const RENDER = { map: renderMap, overview: renderOverview, explorer: renderExplorer, sensitivity: renderSensitivity, highenergy: renderHighEnergy, within: renderWithin,
     sif: renderSif, context: renderContext, establishments: renderEstablishments, models: renderModels, cases: renderCases, tool: renderTool };
+  const pending = {};
+  function fetchJson(f) {
+    if (D[f]) return Promise.resolve(D[f]);
+    if (!pending[f]) pending[f] = fetch(`data/${f}.json?v=${VERSION}`).then(r => { if (!r.ok) throw new Error(`data/${f}.json: HTTP ${r.status}`); return r.json(); })
+      .then(j => { D[f] = j; return j; }).catch(e => { delete pending[f]; throw e; });
+    return pending[f];
+  }
+  const need = files => Promise.all(files.map(fetchJson));
+  function overlay(show, text) {
+    const o = el('overlay'); if (!o) return;
+    if (text) el('overlay-text').textContent = text;
+    o.classList.toggle('hide', !show);
+  }
 
   async function init() {
     try {
-      const res = await Promise.all(FILES.map(f => fetch(`data/${f}.json`).then(r => { if (!r.ok) throw new Error(`data/${f}.json: HTTP ${r.status}`); return r.json(); })));
-      FILES.forEach((f, i) => D[f] = res[i]);
+      await need(INITIAL);
     } catch (e) {
-      html('loading', `Could not load the data files (${esc(e.message)}). Serve the folder over HTTP, for example <code>python -m http.server</code>, and reload.`);
+      el('overlay-text').innerHTML = `Could not load the data files (${esc(e.message)}). Serve the folder over HTTP, for example <code>python -m http.server</code>, and reload.`;
       return;
     }
     D.labels.mechanism.forEach(m => { mechName[m.code] = m.name; MECH_ORDER.push(m.code); });
     D.labels.energy_source.forEach(e => energyName[e.code] = e.name);
     D.labels.high_energy.forEach(h => heName[h.code] = h.name);
-    el('loading').hidden = true;
+    html('tip-howto', howToText());
     const nav = el('nav');
     PAGES.forEach(p => { const a = document.createElement('a'); a.href = '#' + p; a.textContent = el(p).dataset.title; a.dataset.page = p; nav.appendChild(a); });
     window.addEventListener('hashchange', route);
-    route();
+    await route();
   }
 
-  function route() {
-    let page = (location.hash || '#overview').slice(1);
-    if (!PAGES.includes(page)) page = 'overview';
+  let routing = 0;
+  async function route() {
+    let page = (location.hash || '#map').slice(1);
+    if (!PAGES.includes(page)) page = 'map';
     PAGES.forEach(p => el(p).classList.toggle('active', p === page));
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === page));
-    if (!rendered.has(page)) { rendered.add(page); RENDER[page](); }
-    Charts.resizeAll();
     window.scrollTo(0, 0);
+    if (!rendered.has(page)) {
+      const files = PAGE_FILES[page].filter(f => !D[f]);
+      const token = ++routing;
+      if (files.length) {
+        overlay(true, page === 'cases' ? 'Loading the case sample (about 650 KB)…' : 'Loading…');
+        try { await need(files); } catch (e) { html(page + '-body', `Could not load the data (${esc(e.message)}).`); overlay(false); return; }
+        if (token !== routing) return;   // the user moved on while this page was loading
+      }
+      rendered.add(page);
+      RENDER[page]();
+      if (page === 'map') await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));   // let the map paint under the overlay
+      overlay(false);
+    }
+    Charts.resizeAll();
+  }
+
+  function howToText() {
+    const S = D.summary, sc = S.scope_counts;
+    return `<p><b>Map</b> animates state counts by tier through the years. <b>Overview</b> gives the headline numbers. <b>Escalation</b> shows shares by tier and the ratios with intervals, for mechanisms or energy sources. <b>Sensitivity</b> repeats the ratios under other scopes and undercount factors. <b>High energy</b> and <b>Within recordables</b> contrast the two severity signals available inside the recordable tier. <b>SIF potential</b> summarizes the case-level model. <b>Context</b> covers shift hour, season, weekday, occupation and establishment size. <b>Establishments</b> links severe reports to ITA establishments. <b>Models</b> documents coder accuracy. <b>Cases</b> lists sampled narratives with links to the OSHA records.</p>
+      <p><b>Tool</b> codes a narrative you paste and returns its escalation ratios, high-energy share and SIF potential index, all computed locally in your browser.</p>
+      <p>Corpus: ${fmt.int(S.corpus_n)} construction narratives coded; main analytic scope ${fmt.int(sc.recordable + sc.severe + sc.fatal)} cases in ${S.n_states} federal OSHA states. Every chart has a Source link with the OSHA product, filter, n and script.</p>`;
+  }
+
+  /* ---------------------------------------------------------------- map (landing page): choropleth with a year timeline, monthly counts below */
+  const METRICS = {
+    severe: { label: 'Severe injury reports', short: 'Severe', tier: 'severe', color: 'green' },
+    fatal: { label: 'Fatality investigations', short: 'Fatal', tier: 'fatal', color: 'pink' },
+    recordable: { label: 'Recordable cases', short: 'Recordable', tier: 'recordable', color: 'blue' },
+    he: { label: 'High-energy share of recordables', short: 'High-energy share', tier: 'recordable', color: 'gray', share: true },
+  };
+  const RAMP = { green: ['#F1F7EE', '#D9EAD3', '#9CC98C', '#4E8A3E', '#2B5620'], pink: ['#F8EEF3', '#EAD1DC', '#D39BB8', '#B0507E', '#722E51'],
+                 blue: ['#EEF6F9', '#D4EBF2', '#95C8D9', '#3E86A0', '#234E5F'], gray: ['#F4F4F4', '#BFBFBF', '#8F8F8F', '#5C5C5C', '#1E1E1E'] };
+  const SMALL = new Set(['RI', 'CT', 'MA', 'NJ', 'DE', 'MD', 'DC', 'VT', 'NH']);
+  const HATCH = { symbol: 'rect', dashArrayX: [1, 0], dashArrayY: [1, 4], rotation: Math.PI / 4, color: 'rgba(0,0,0,.28)', symbolSize: 1 };
+  function renderMap() {
+    const SY = D.state_years, G = D.us_states, MO = D.monthly;
+    echarts.registerMap('us', G);
+    const abbrOf = {}; G.features.forEach(f => abbrOf[f.properties.name] = f.properties.abbr);
+    const fedStates = Object.keys(SY.states).filter(a => SY.states[a].federal && G.features.some(f => f.properties.abbr === a));
+    const Y = SY.years;
+    html('map-body', `
+      <div class="controls">
+        <span class="group"><span>Colour by</span><span id="mp-metric"></span></span>
+        <span class="map-legend"><span class="sw"></span> State plan states, outside the main scope</span>
+        <span class="year-note">Severe and fatal ${Y.severe[0]} to ${Y.severe[Y.severe.length - 1]}; recordable ${Y.recordable[0]} to ${Y.recordable[Y.recordable.length - 1]}; ${fedStates.length} federal OSHA states.</span>
+      </div>
+      <div class="map-wrap"><div id="map-chart"></div></div>
+      ${prov({ filter: `construction (NAICS 23), all states; counts by the state of the incident over the years of the main scope, federal OSHA states coloured`, n: `${fmt.int(fedStates.reduce((a, s) => a + SY.states[s].n.recordable, 0))} recordable, ${fmt.int(fedStates.reduce((a, s) => a + SY.states[s].n.severe, 0))} severe, ${fmt.int(fedStates.reduce((a, s) => a + SY.states[s].n.fatal, 0))} fatal in the coloured states`, script: [SCRIPT.escalation, SCRIPT.app], note: 'Boundaries: Census cartographic boundary file 1:20,000,000 (2023), simplified.' })}
+      <div class="card" style="margin-top:1rem"><h3>Cases per month by tier${info('Main scope (federal OSHA states), by month of the incident date. Recordable cases exist only for 2023 and 2024, the ITA case-detail years inside the scope. The shaded band follows the year selected on the map.', 'About this chart')}</h3><div id="map-monthly"></div>${prov({ n: scopeN(), script: SCRIPT.escalation, note: 'Monthly counts as in the data landscape figure of the paper.' })}</div>`);
+    const state = { metric: 'severe', frame: 0, frames: [] };
+    el('mp-metric').replaceWith(seg('mp-metric', Object.keys(METRICS).map(k => ({ v: k, label: METRICS[k].short })), state.metric, v => { state.metric = v; state.frame = 0; draw(); }));
+    const chart = Charts.init('map-chart');
+
+    function valueOf(abbr, y) {
+      const st = SY.states[abbr], M = METRICS[state.metric]; if (!st) return null;
+      if (M.share) return y === 'All' ? st.he[M.tier] : st.he_year[M.tier][y];
+      return y === 'All' ? st.n[M.tier] : st.by_year[M.tier][y];
+    }
+    function tooltip(p) {
+      const a = abbrOf[p.name], st = SY.states[a], y = state.frames[state.frame] || 'All';
+      if (!st) return `<b>${p.name}</b><br>No cases in the corpus.`;
+      const yr = t => (y === 'All' || !Y[t].includes(Number(y))) ? null : st.by_year[t][y];
+      const line = t => `${TIER_NAME[t]}: ${y !== 'All' && yr(t) != null ? `<b>${fmt.int(yr(t))}</b> in ${y}, ` : ''}${fmt.int(st.n[t])} in ${Y[t][0]} to ${Y[t][Y[t].length - 1]}`;
+      const top = t => st.top_mech[t] ? `${mechName[st.top_mech[t][0]] || st.top_mech[t][0]} (${fmt.pct(st.top_mech[t][1])} of ${t})` : 'n/a';
+      return `<b>${p.name}</b> <span style="color:#444">${st.federal ? 'federal OSHA state, main scope' : 'state plan state, outside the main scope'}</span><br>` +
+        TIERS.map(line).join('<br>') +
+        `<br>High-energy share: recordables ${fmt.pct(st.he.recordable)}, severe ${fmt.pct(st.he.severe)}, fatal ${fmt.pct(st.he.fatal)}` +
+        `<br>Top mechanism: ${top('fatal')}; ${top('recordable')}`;
+    }
+    function draw() {
+      const M = METRICS[state.metric], years = Y[M.tier];
+      state.frames = years.map(String).concat('All');
+      const dataFor = y => G.features.map(f => {
+        const a = f.properties.abbr, st = SY.states[a], federal = st && st.federal;
+        const small = SMALL.has(a) ? { label: { show: false } } : {};   // too small for a permanent label; the name shows on hover
+        return federal ? Object.assign({ name: f.properties.name, value: valueOf(a, y) }, small) : Object.assign({ name: f.properties.name, value: null, itemStyle: { areaColor: '#F9F9F9', decal: HATCH }, emphasis: { itemStyle: { areaColor: '#F0F0F0' } } }, small);
+      });
+      const narrow = chart.getWidth() < 700;
+      const maxYear = Math.max(...fedStates.flatMap(a => years.map(y => valueOf(a, String(y)) || 0)));
+      const maxAll = Math.max(...fedStates.map(a => valueOf(a, 'All') || 0));
+      const visual = max => ({ type: 'continuous', min: 0, max: M.share ? Math.ceil(max * 20) / 20 : max, calculable: false, orient: 'horizontal', left: 24, bottom: 58, itemWidth: 12, itemHeight: 160,
+        inRange: { color: RAMP[M.color] }, text: [M.share ? fmt.pct(Math.ceil(max * 20) / 20) : fmt.int(max), '0'], textStyle: { color: '#000', fontSize: 11 }, outOfRange: { color: '#F9F9F9' }, seriesIndex: 0 });
+      chart.setOption({
+        baseOption: {
+          textStyle: { color: '#000', fontFamily: 'Segoe UI, Helvetica Neue, Arial, sans-serif', fontSize: 12 },
+          animationDurationUpdate: 700, animationEasingUpdate: 'cubicInOut',
+          timeline: { axisType: 'category', data: state.frames, currentIndex: Math.min(state.frame, state.frames.length - 1), autoPlay: true, playInterval: 1400, loop: true, bottom: 4, left: 50, right: 40,
+            symbol: 'circle', symbolSize: 7, label: { color: '#000', fontSize: 11 }, lineStyle: { color: '#000', width: 1 }, itemStyle: { color: '#fff', borderColor: '#000', borderWidth: 1 },
+            checkpointStyle: { color: '#000', borderColor: '#000', symbolSize: 11, animationDuration: 300 }, progress: { lineStyle: { color: '#000', width: 1 }, itemStyle: { color: '#000', borderColor: '#000' }, label: { color: '#000' } },
+            controlStyle: { color: '#000', borderColor: '#000', itemSize: 18, itemGap: 10 }, emphasis: { itemStyle: { color: '#000' }, label: { color: '#000' } } },
+          tooltip: Object.assign({ trigger: 'item', formatter: tooltip }, Charts.tooltipBox()),
+          series: [{ type: 'map', map: 'us', name: M.label, projection: Charts.albersUSA(), roam: false, top: narrow ? 40 : 8, bottom: 62, left: 8, right: 8, aspectScale: 1,
+            itemStyle: { areaColor: '#F9F9F9', borderColor: '#000', borderWidth: .7 },
+            emphasis: { label: { show: true, color: '#000', fontSize: 11 }, itemStyle: { areaColor: 'inherit', borderWidth: 1.6 } }, select: { disabled: true },
+            label: { show: true, formatter: p => abbrOf[p.name] || '', fontSize: 10, color: '#000' }, labelLayout: { hideOverlap: true } }],
+        },
+        options: state.frames.map(y => ({
+          title: { text: y === 'All' ? 'All years' : y, subtext: M.label, right: narrow ? 8 : 30, top: narrow ? 2 : 8, textAlign: 'right', textStyle: { fontSize: narrow ? 18 : 30, fontWeight: 400, color: '#000' }, subtextStyle: { color: '#444', fontSize: narrow ? 10 : 12 } },
+          visualMap: visual(y === 'All' ? maxAll : maxYear),
+          series: [{ data: dataFor(y) }],
+        })),
+      }, { notMerge: true });
+      syncMonthly();
+    }
+    chart.on('timelinechanged', e => { state.frame = e.currentIndex; syncMonthly(); });
+
+    // monthly counts: a compact line chart with a progressive first draw; the shaded year follows the timeline
+    const x = MO.ym;
+    const monthly = Charts.lines({ el: 'map-monthly', x, valueName: 'Cases per month', min: 0, height: 230, animationDuration: 1800, xLabelInterval: 11, xLabelFormatter: v => v.slice(0, 4), grid: { left: 60, right: 24, top: 30, bottom: 30 },
+      series: TIERS.map(t => ({ name: TIER_NAME[t], color: Charts.TIER_COLOR[t], data: MO[t], symbol: 'none', width: 1.6 })),
+      tooltipFormatter: ps => `<b>${ps[0].axisValue}</b><br>` + ps.filter(p => p.value != null).map(p => `${p.marker} ${p.seriesName}: ${fmt.int(p.value)}`).join('<br>') });
+    monthly.setOption({ series: TIERS.map(() => ({ symbolSize: 4, showSymbol: false })) });
+    function syncMonthly() {
+      const y = state.frames[state.frame];
+      const data = y && y !== 'All' && x.includes(`${y}-01`) ? [[{ xAxis: `${y}-01` }, { xAxis: `${y}-12` }]] : [];
+      monthly.setOption({ series: [{ markArea: { silent: true, itemStyle: { color: 'rgba(0,0,0,.07)' }, data } }] });
+    }
+    draw();
   }
 
   /* ---------------------------------------------------------------- overview */
   function renderOverview() {
     const S = D.summary, he = S.high_energy_share, sc = S.scope_counts;
     const orders = Math.round(S.er_range_orders);
+    html('tip-overview', `Three public OSHA injury tiers for US construction were harmonized with a fine-tuned language model into one taxonomy of 13 mechanisms, 11 energy sources and a high-energy flag. The share of a mechanism among fatalities relative to its share among recordables, the escalation ratio, spans ${orders === 4 ? 'four' : orders} orders of magnitude: electrical contact ${fmt.ratio(S.er_fatal.ELECTRICAL)}, fall to lower level ${fmt.ratio(S.er_fatal.FALL_LOWER)}, transportation ${fmt.ratio(S.er_fatal.TRANSPORT)}, struck by ${fmt.ratio(S.er_fatal.STRUCK_BY)}, fall on same level ${fmt.ratio(S.er_fatal.FALL_SAME)}, overexertion ${fmt.ratio(S.er_fatal.OVEREXERTION)}. High-energy exposure rises from ${fmt.pct(he.recordable)} of recordables to ${fmt.pct(he.severe)} of severe and ${fmt.pct(he.fatal)} of fatal cases. An establishment’s recordable count does not predict whether it also reports a severe injury (odds ratio ${fmt.dec(S.or_log_rec, 2)} per log unit, ${fmt.p(S.p_log_rec)}), but the high-energy share of its recordables does (odds ratio ${fmt.dec(S.or_high_energy_share, 1)}).`);
     html('overview-body', `
       <div class="message">${esc(S.message)}</div>
-      <p class="lead">Three public OSHA injury tiers for US construction were harmonized with a fine-tuned language model into one taxonomy of 13 mechanisms, 11 energy sources and a high-energy flag. The share of a mechanism among fatalities relative to its share among recordables, the escalation ratio, spans ${orders === 4 ? 'four' : orders} orders of magnitude: electrical contact ${fmt.ratio(S.er_fatal.ELECTRICAL)}, fall to lower level ${fmt.ratio(S.er_fatal.FALL_LOWER)}, transportation ${fmt.ratio(S.er_fatal.TRANSPORT)}, struck by ${fmt.ratio(S.er_fatal.STRUCK_BY)}, fall on same level ${fmt.ratio(S.er_fatal.FALL_SAME)}, overexertion ${fmt.ratio(S.er_fatal.OVEREXERTION)}. High-energy exposure rises from ${fmt.pct(he.recordable)} of recordables to ${fmt.pct(he.severe)} of severe and ${fmt.pct(he.fatal)} of fatal cases. An establishment’s recordable count does not predict whether it also reports a severe injury (odds ratio ${fmt.dec(S.or_log_rec, 2)} per log unit, ${fmt.p(S.p_log_rec)}), but the high-energy share of its recordables does (odds ratio ${fmt.dec(S.or_high_energy_share, 1)}).</p>
       <div class="tiles">
         ${tile(fmt.int(sc.recordable), 'Recordable cases, ITA Form 301, 2023 to 2025', 'blue')}
         ${tile(fmt.int(sc.severe), 'Severe cases, Severe Injury Reports, 2015 to 2025', 'green')}
@@ -116,11 +266,7 @@ const App = (() => {
       ${prov({ n: scopeN(), script: [SCRIPT.escalation, SCRIPT.sif, SCRIPT.linkage, SCRIPT.student], note: `Corpus coded: ${fmt.int(S.provenance.corpus_by_source.ITA)} ITA, ${fmt.int(S.provenance.corpus_by_source.SIR)} SIR and ${fmt.int(S.provenance.corpus_by_source.IMIS)} IMIS narratives; the counts above are the cases inside the main scope.` })}
       <div class="grid two">
         ${card('Share of each mechanism by tier (log scale)', 'ov-slope', 'Pink lines rise across tiers (fatal escalation ratio 1.5 or more), blue lines fall (.67 or less), gray lines stay roughly flat. Hover a line for the shares. Main scope: ' + S.n_states + ' federal OSHA states.')}
-        <div class="card"><h3>How to read this app</h3>
-          <p><b>Escalation explorer</b> shows shares by tier and the ratios with intervals, for mechanisms or energy sources. <b>Sensitivity</b> repeats the ratios under other scopes and undercount factors. <b>High energy</b> and <b>Within recordables</b> contrast the two severity signals available inside the recordable tier. <b>SIF potential</b> summarizes the case-level model. <b>Context</b> covers shift hour, season, weekday, occupation and establishment size. <b>Establishments</b> links severe reports to ITA establishments. <b>Models</b> documents coder accuracy.</p>
-          <p><b>Tool</b> codes a narrative you paste and returns its escalation ratios, high-energy share and SIF potential index, all computed locally in your browser.</p>
-          <p class="muted">Corpus: ${fmt.int(S.corpus_n)} construction narratives coded; main analytic scope ${fmt.int(sc.recordable + sc.severe + sc.fatal)} cases in federal OSHA states.</p>
-        </div>
+        <div class="card"><h3>Fatal escalation ratio by mechanism${info('Share of the mechanism among fatalities divided by its share among recordables, main scope, with the 95% bootstrap interval. Sorted by ratio; dashed line at 1.', 'About this chart')}</h3><div id="ov-er" class="chart"></div></div>
       </div>`);
     const rows = D.escalation.mechanism;
     const series = rows.map(r => {
@@ -132,6 +278,11 @@ const App = (() => {
       valueFormatter: v => fmt.dec(v * 100, v < .01 ? 2 : (v < .1 ? 1 : 0)) + '%',
       tooltipFormatter: ps => `<b>${ps[0].axisValue}</b><br>` + ps.sort((a, b) => b.value - a.value).map(p => `${p.marker} ${p.seriesName}: ${fmt.pct(p.value, 1)}`).join('<br>') });
     provAfter('ov-slope', { n: scopeN(), script: SCRIPT.escalation });
+    const er = rows.slice().sort((a, b) => b.ER_fatal - a.ER_fatal);
+    Charts.dotInterval({ el: 'ov-er', categories: er.map(r => mechName[r.mechanism]), log: true, min: .001, valueName: 'Fatal vs recordable (escalation ratio)', height: 470, color: 'pink',
+      points: er.map(r => ({ v: r.ER_fatal, lo: r.ER_fatal_lo, hi: r.ER_fatal_hi, row: r })),
+      tooltipFormatter: p => { const r = p.data.raw; return `<b>${p.name}</b><br>Ratio ${fmt.ratio(r.v)} (95% interval ${fmt.ci(r.lo, r.hi)})<br>n recordable ${fmt.int(r.row.n_recordable)}, fatal ${fmt.int(r.row.n_fatal)}`; } });
+    provAfter('ov-er', { n: scopeN(), script: SCRIPT.escalation, note: 'Bootstrap intervals: 1,000 resamples of cases within tier.' });
   }
 
   /* ---------------------------------------------------------------- escalation explorer */
@@ -180,7 +331,7 @@ const App = (() => {
     draw();
     ['ex-shares', 'ex-ratio-chart'].forEach(id => provAfter(id, { n: scopeN(), script: SCRIPT.escalation, note: 'Bootstrap intervals: 1,000 resamples of cases within tier.' }));
     const t = D.escalation.tests;
-    el('ex-table').insertAdjacentHTML('afterend', `<p class="note">Homogeneity of mechanism mix across the three tiers: chi-square ${fmt.int(Math.round(t.homogeneity_mechanism.chi2))}, ${t.homogeneity_mechanism.dof} df, Cramér’s V ${fmt.dec(t.homogeneity_mechanism.cramers_v, 2)}, ${fmt.p(t.homogeneity_mechanism.p)}. Recordable vs severe V ${fmt.dec(t.homogeneity_recordable_vs_severe.cramers_v, 2)}; severe vs fatal V ${fmt.dec(t.homogeneity_severe_vs_fatal.cramers_v, 2)}; recordable vs fatal V ${fmt.dec(t.homogeneity_recordable_vs_fatal.cramers_v, 2)}.</p>`);
+    el('ex-table').insertAdjacentHTML('afterend', `<p class="note">Mechanism mix differs across tiers: Cramér’s V ${fmt.dec(t.homogeneity_mechanism.cramers_v, 2)}, ${fmt.p(t.homogeneity_mechanism.p)}.${info(`Homogeneity of mechanism mix across the three tiers: chi-square ${fmt.int(Math.round(t.homogeneity_mechanism.chi2))}, ${t.homogeneity_mechanism.dof} df, Cramér’s V ${fmt.dec(t.homogeneity_mechanism.cramers_v, 2)}, ${fmt.p(t.homogeneity_mechanism.p)}. Recordable vs severe V ${fmt.dec(t.homogeneity_recordable_vs_severe.cramers_v, 2)}; severe vs fatal V ${fmt.dec(t.homogeneity_severe_vs_fatal.cramers_v, 2)}; recordable vs fatal V ${fmt.dec(t.homogeneity_recordable_vs_fatal.cramers_v, 2)}.`, 'Test details')}</p>`);
   }
 
   /* ---------------------------------------------------------------- sensitivity */
@@ -226,10 +377,13 @@ const App = (() => {
       <div class="tiles">${TIERS.map(t => tile(fmt.pct(H.by_tier[t].mean), `High-energy share among ${t} cases (n = ${fmt.int(H.by_tier[t].size)})`, Charts.TIER_COLOR[t])).join('')}</div>
       <div class="grid two">
         ${card('High-energy share by mechanism and tier', 'he-mech', 'Fall on same level and struck against are low energy by definition of the flag; the interesting rows are struck by, caught, temperature and harmful substance, where the same mechanism label hides very different energy levels.', 'tall')}
-        <div class="card"><h3>Reading</h3>
-          <p>The high-energy flag separates the tiers better than any mechanism label: ${fmt.pct(H.by_tier.recordable.mean)} of recordables are high energy, against ${fmt.pct(H.by_tier.severe.mean)} of severe and ${fmt.pct(H.by_tier.fatal.mean)} of fatal cases.</p>
-          <p>Inside struck-by injuries, ${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'STRUCK_BY').recordable)} of recordables are high energy against ${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'STRUCK_BY').fatal)} of fatalities; inside caught-in cases the figures are ${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'CAUGHT').recordable)} and ${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'CAUGHT').fatal)}. A recordable struck-by injury from a hand tool and a fatal struck-by from a falling load share a mechanism code but not an energy level.</p>
-          <p>This is why the establishment analysis uses the high-energy share of recordables, not their count, as the precursor signal.</p>
+        <div class="card"><h3>Reading${info(`The high-energy flag separates the tiers better than any mechanism label: ${fmt.pct(H.by_tier.recordable.mean)} of recordables are high energy, against ${fmt.pct(H.by_tier.severe.mean)} of severe and ${fmt.pct(H.by_tier.fatal.mean)} of fatal cases. Inside struck-by injuries, ${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'STRUCK_BY').recordable)} of recordables are high energy against ${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'STRUCK_BY').fatal)} of fatalities; inside caught-in cases the figures are ${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'CAUGHT').recordable)} and ${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'CAUGHT').fatal)}. A recordable struck-by injury from a hand tool and a fatal struck-by from a falling load share a mechanism code but not an energy level. This is why the establishment analysis uses the high-energy share of recordables, not their count, as the precursor signal.`, 'Reading in full')}</h3>
+          <ul class="facts">
+            <li>High energy: <b>${fmt.pct(H.by_tier.recordable.mean)}</b> of recordables, <b>${fmt.pct(H.by_tier.severe.mean)}</b> of severe, <b>${fmt.pct(H.by_tier.fatal.mean)}</b> of fatal cases.</li>
+            <li>Struck by: <b>${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'STRUCK_BY').recordable)}</b> of recordables high energy, <b>${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'STRUCK_BY').fatal)}</b> of fatalities.</li>
+            <li>Caught in or between: <b>${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'CAUGHT').recordable)}</b> against <b>${fmt.pct(H.by_tier_mechanism.find(r => r.mechanism === 'CAUGHT').fatal)}</b>.</li>
+            <li>Same mechanism code, different energy level: the precursor signal is the high-energy share, not the count.</li>
+          </ul>
         </div>
       </div>`);
     Charts.bars({ el: 'he-mech', categories: MECH_ORDER.map(m => mechName[m]), horizontal: true, valueName: 'High-energy share (%)', max: 100, height: 470,
@@ -249,10 +403,13 @@ const App = (() => {
       </div>
       <div class="grid two" style="margin-top:1rem">
         ${card('Days-away share versus fatal escalation ratio (log)', 'wi-scatter', 'Each point is a mechanism. Overexertion and same-level falls have a high days-away share but almost never escalate; electrical contact is the reverse. Dashed line: escalation ratio 1.')}
-        <div class="card"><h3>Reading</h3>
-          <p>Within the recordable tier, days away from work rewards the chronic and musculoskeletal mechanisms: fall to lower level ${fmt.pct(W.find(r => r.mechanism === 'FALL_LOWER').dafw_case_share)} of cases with days away (median ${W.find(r => r.mechanism === 'FALL_LOWER').median_dafw_when_away} days), overexertion ${fmt.pct(W.find(r => r.mechanism === 'OVEREXERTION').dafw_case_share)}, fall on same level ${fmt.pct(W.find(r => r.mechanism === 'FALL_SAME').dafw_case_share)}.</p>
-          <p>Only fall to lower level scores high on both signals. Overexertion and same-level falls cost days but do not kill; electrical contact costs relatively few days (median ${W.find(r => r.mechanism === 'ELECTRICAL').median_dafw_when_away}) but has a fatal escalation ratio of ${fmt.ratio(E.find(r => r.mechanism === 'ELECTRICAL').ER_fatal)}.</p>
-          <p>A lost-time metric and a fatality precursor metric therefore point at different injuries. Both are needed; neither substitutes for the other.</p>
+        <div class="card"><h3>Reading${info(`Within the recordable tier, days away from work rewards the chronic and musculoskeletal mechanisms: fall to lower level ${fmt.pct(W.find(r => r.mechanism === 'FALL_LOWER').dafw_case_share)} of cases with days away (median ${W.find(r => r.mechanism === 'FALL_LOWER').median_dafw_when_away} days), overexertion ${fmt.pct(W.find(r => r.mechanism === 'OVEREXERTION').dafw_case_share)}, fall on same level ${fmt.pct(W.find(r => r.mechanism === 'FALL_SAME').dafw_case_share)}. Only fall to lower level scores high on both signals. Overexertion and same-level falls cost days but do not kill; electrical contact costs relatively few days (median ${W.find(r => r.mechanism === 'ELECTRICAL').median_dafw_when_away}) but has a fatal escalation ratio of ${fmt.ratio(E.find(r => r.mechanism === 'ELECTRICAL').ER_fatal)}. A lost-time metric and a fatality precursor metric therefore point at different injuries. Both are needed; neither substitutes for the other.`, 'Reading in full')}</h3>
+          <ul class="facts">
+            <li>Fall to lower level: <b>${fmt.pct(W.find(r => r.mechanism === 'FALL_LOWER').dafw_case_share)}</b> with days away (median ${W.find(r => r.mechanism === 'FALL_LOWER').median_dafw_when_away} days); high on both signals.</li>
+            <li>Overexertion <b>${fmt.pct(W.find(r => r.mechanism === 'OVEREXERTION').dafw_case_share)}</b>, fall on same level <b>${fmt.pct(W.find(r => r.mechanism === 'FALL_SAME').dafw_case_share)}</b>: cost days, rarely kill.</li>
+            <li>Electrical contact: median ${W.find(r => r.mechanism === 'ELECTRICAL').median_dafw_when_away} days away, fatal escalation ratio <b>${fmt.ratio(E.find(r => r.mechanism === 'ELECTRICAL').ER_fatal)}</b>.</li>
+            <li>Lost time and fatality precursors point at different injuries; both are needed.</li>
+          </ul>
         </div>
       </div>`);
     const cats = rows.map(r => mechName[r.mechanism]);
@@ -286,7 +443,7 @@ const App = (() => {
         ${card('Median SIF potential index by mechanism and high-energy flag (log)', 'sif-median', 'Index = (p severe + p fatal) / p recordable with balanced classes. The flag moves every mechanism by one to two orders of magnitude; missing bars mean no cases with that flag value.', 'tall')}
         ${card('Mean absolute SHAP value by feature and predicted class', 'sif-shap', 'Feature importance on a stratified sample of 2,500 cases per tier. The high-energy flag dominates the fatal class; mechanism and energy source carry most of the rest.', 'tall')}
       </div>
-      <p class="note" style="margin-top:.8rem">Features: mechanism, energy source, high-energy flag, fall height (feet, when stated), whether a fall height was stated, direct-control status. Industry codes are deliberately excluded: differences in NAICS mix between tiers come from the coverage of each data source, not from risk. Class weights equalize the three tiers. Cross-validated best iterations: ${M.cv_best_iters.join(', ')}. Multiclass log loss ${fmt.dec(M.multiclass_logloss, 3)}. The Tool page evaluates the same model on a lookup grid built with fall height and direct control unknown.</p>`);
+      <p class="note" style="margin-top:.8rem">Features: mechanism, energy source, high-energy flag, fall height, direct control. No industry codes.${info(`Features: mechanism, energy source, high-energy flag, fall height (feet, when stated), whether a fall height was stated, direct-control status. Industry codes are deliberately excluded: differences in NAICS mix between tiers come from the coverage of each data source, not from risk. Class weights equalize the three tiers. Cross-validated best iterations: ${M.cv_best_iters.join(', ')}. Multiclass log loss ${fmt.dec(M.multiclass_logloss, 3)}. The Tool page evaluates the same model on a lookup grid built with fall height and direct control unknown.`, 'Model details')}</p>`);
     const cats = MECH_ORDER.map(m => mechName[m]);
     const byM = Object.fromEntries(med.map(r => [r.mechanism, r]));
     Charts.bars({ el: 'sif-median', categories: cats, horizontal: true, log: true, min: .005, valueName: 'Median SIF potential index', height: 470,
@@ -316,10 +473,9 @@ const App = (() => {
       </div>
       <div class="grid two" style="margin-top:1rem">
         ${card('Recordable severity signals by establishment size', 'cx-size', `Large establishments have a lower days-away share but a higher share of high-escalation mechanisms and of high-energy cases. Adjusted for mechanism, days-away odds fall with log employees (coefficient ${fmt.dec(st.logit_dafw_log10_employees_adj_mechanism.coef, 2)}, ${fmt.p(st.logit_dafw_log10_employees_adj_mechanism.p)}).`)}
-        <div class="card"><h3>Month index by mechanism</h3>
+        <div class="card"><h3>Month index by mechanism${info('Index above 1 (pink) means more cases than an average month for that mechanism; below 1 (blue) fewer. Temperature cases in June to August reach an index of 2.5 or more.', 'About this chart')}</h3>
           <div class="controls"><span class="group"><span>Tier</span><span id="cx-tier"></span></span></div>
           <div id="cx-heat" class="chart tall"></div>
-          <div class="note">Index above 1 (pink) means more cases than an average month for that mechanism; below 1 (blue) fewer. Temperature cases in June to August reach an index of 2.5 or more.</div>
         </div>
       </div>`);
     const H = C.hours_into_shift;
@@ -379,9 +535,8 @@ const App = (() => {
         ${card('Establishments with a severe report, by size and high-energy tercile', 'es-rate', 'Establishments with at least 3 recordables, grouped by employee count and by tercile of the high-energy share of their recordables. Hover for n; the smallest size class has very few establishments.')}
       </div>
       <div class="grid two" style="margin-top:1rem">
-        <div class="card"><h3>Logistic models for having a severe report (n = ${fmt.int(L.size_only.n)})</h3><div id="es-or" class="chart"></div>
-          <div class="scroll"><table class="data"><thead><tr><th>Model</th><th>Term</th><th class="num">Odds ratio</th><th class="num">p</th><th class="num">Pseudo R²</th></tr></thead><tbody>${orRows(L)}</tbody></table></div>
-          <div class="note">Every model adjusts for log employees. Recordable volume (log count) is not significant; the high-energy share of recordables and the high-escalation mechanism share are. Odds ratios for shares are per unit share (0 to 1).</div></div>
+        <div class="card"><h3>Logistic models for having a severe report (n = ${fmt.int(L.size_only.n)})${info('Every model adjusts for log employees. Recordable volume (log count) is not significant; the high-energy share of recordables and the high-escalation mechanism share are. Odds ratios for shares are per unit share (0 to 1).', 'About this chart')}</h3><div id="es-or" class="chart"></div>
+          <div class="scroll"><table class="data"><thead><tr><th>Model</th><th>Term</th><th class="num">Odds ratio</th><th class="num">p</th><th class="num">Pseudo R²</th></tr></thead><tbody>${orRows(L)}</tbody></table></div></div>
         ${card('Mechanism concordance between a severe report and the same establishment’s recordables', 'es-conc', `Observed versus permutation null (bars with 95% null interval) over ${fmt.int(cc.n_linked_sir_cases)} linked severe cases. Present: the severe case mechanism appears among the establishment’s recordables (${fmt.p(cc.p_one_sided.present)}); modal: it equals the most common recordable mechanism (${fmt.p(cc.p_one_sided.modal)}); share: mean recordable share of that mechanism (${fmt.p(cc.p_one_sided.share)}).`)}
       </div>
       <div class="card scroll" style="margin-top:1rem"><h3>Establishments with and without a severe report (at least 3 recordables)</h3>${compareTable(ge3)}</div>`);
@@ -430,16 +585,14 @@ const App = (() => {
   function renderModels() {
     const M = D.models, coders = M.coders;
     html('models-body', `
-      <div class="card scroll"><h3>Coder comparison on the gold test set (mechanism unless stated)</h3>
+      <div class="card scroll"><h3>Coder comparison on the gold test set${info(`Mechanism unless stated. Legacy codes are the event codes native to each source, mapped to the taxonomy; coverage is the share of test cases with a mappable legacy code. The student was trained for ${M.student.epochs} epochs on ${fmt.int(M.student.train_n)} narratives (teacher silver labels plus gold training labels). ONNX latency on one CPU thread: fp32 median ${fmt.dec(M.onnx.variants.fp32.latency_ms_median, 0)} ms, int8 median ${fmt.dec(M.onnx.variants.int8.latency_ms_median, 0)} ms per narrative.`, 'About this table')}</h3>
         <table class="data"><thead><tr><th>Coder</th><th class="num">n</th><th class="num">Coverage</th><th class="num">Accuracy</th><th class="num">Macro-F1</th><th class="num">Kappa</th><th class="num">Energy accuracy</th><th class="num">High-energy accuracy</th></tr></thead><tbody>
         ${coders.map(c => `<tr${c.id === 'student_int8' ? ' class="hl"' : ''}><td>${esc(c.name)}</td><td class="num">${c.n}</td><td class="num">${c.coverage == null ? '' : fmt.pct(c.coverage)}</td><td class="num">${fmt.dec(c.accuracy, 3)}</td><td class="num">${fmt.dec(c.macro_f1, 3)}</td><td class="num">${fmt.dec(c.kappa, 3)}</td><td class="num">${c.energy_accuracy == null ? '' : fmt.dec(c.energy_accuracy, 3)}</td><td class="num">${c.high_energy_accuracy == null ? '' : fmt.dec(c.high_energy_accuracy, 3)}</td></tr>`).join('')}
         </tbody></table>
-        <div class="note">Legacy codes are the event codes native to each source, mapped to the taxonomy; coverage is the share of test cases with a mappable legacy code. The student was trained for ${M.student.epochs} epochs on ${fmt.int(M.student.train_n)} narratives (teacher silver labels plus gold training labels). ONNX latency on one CPU thread: fp32 median ${fmt.dec(M.onnx.variants.fp32.latency_ms_median, 0)} ms, int8 median ${fmt.dec(M.onnx.variants.int8.latency_ms_median, 0)} ms per narrative.</div>
       </div>
-      <div class="card" style="margin-top:1rem"><h3>Per-class F1 for mechanism</h3>
+      <div class="card" style="margin-top:1rem"><h3>Per-class F1 for mechanism${info(`Support in the test set (n per class) is shown in the tooltip. Fire or explosion (n = ${M.test_support.FIRE_EXPLOSION}) and struck against (n = ${M.test_support.STRUCK_AGAINST}) are the weakest classes for every coder.`, 'About this chart')}</h3>
         <div class="controls" id="mo-pick"></div>
         <div id="mo-f1" class="chart tall"></div>
-        <div class="note">Support in the test set (n per class) is shown in the tooltip. Fire or explosion (n = ${M.test_support.FIRE_EXPLOSION}) and struck against (n = ${M.test_support.STRUCK_AGAINST}) are the weakest classes for every coder.</div>
       </div>`);
     const pick = el('mo-pick');
     const defaults = new Set(['legacy_codes_all', 'qwen7b_zeroshot', 'qwen7b_finetuned', 'student_int8']);
@@ -463,13 +616,7 @@ const App = (() => {
 
   /* ---------------------------------------------------------------- cases */
   function renderCases() {
-    html('cases-body', '<p class="muted">Loading the case sample (about 650 KB)…</p>');
-    fetch('data/cases_sample.json').then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(C => { D.cases = C; drawCases(); })
-      .catch(e => html('cases-body', `Could not load data/cases_sample.json (${esc(e.message)}).`));
-  }
-  function drawCases() {
-    const C = D.cases, all = C.cases;
+    const C = D.cases_sample, all = C.cases;
     html('cases-body', `
       <div class="tiles">
         ${TIERS.map(t => tile(fmt.int(C.n_by_tier[t]), `${TIER_NAME[t]} cases in the sample`, Charts.TIER_COLOR[t])).join('')}
@@ -539,26 +686,17 @@ const App = (() => {
   /* ---------------------------------------------------------------- tool */
   function renderTool() {
     html('tool-body', `
-      <div class="disclaimer"><b>Disclaimer.</b> This tool does not determine OSHA recordability or regulatory compliance and is not a substitute for an investigation. It estimates, from the wording of a narrative, how often incidents of this kind escalate to hospitalization or death in national OSHA data. All inference runs locally in your browser; nothing you type is uploaded or stored.</div>
-      <div class="grid two">
-        <div class="card">
-          <h3>Narrative</h3>
-          <textarea id="tool-text" placeholder="Example: Employee was installing conduit from a 10-foot stepladder when the ladder shifted; he fell to the concrete floor and fractured his wrist."></textarea>
-          <div class="controls" style="margin:.6rem 0 0">
-            <button class="primary" id="tool-run" disabled>Code this narrative</button>
-            <button class="link" id="tool-example">Insert an example</button>
-            <span class="muted" id="tool-count"></span>
-          </div>
-          <div id="tool-status" class="status"></div>
-          <div class="progress" id="tool-progress" hidden><div></div></div>
+      <div class="disclaimer">Not a determination of OSHA recordability or compliance; nothing you type leaves your browser.${info('This tool does not determine OSHA recordability or regulatory compliance and is not a substitute for an investigation. It estimates, from the wording of a narrative, how often incidents of this kind escalate to hospitalization or death in national OSHA data. All inference runs locally in your browser; nothing you type is uploaded or stored.', 'Disclaimer in full')}</div>
+      <div class="card">
+        <h3>Narrative${info(`<p>1. The text is tokenized with the WordPiece vocabulary of bge-small (max 256 tokens).</p><p>2. The distilled int8 ONNX model (${D.summary.student_mb} MB, downloaded once) returns probabilities for 13 mechanisms, 11 energy sources and the high-energy flag. Test macro-F1 ${fmt.dec(D.summary.student_macro_f1_int8, 2)} for mechanism.</p><p>3. The predicted codes, which you can override, are looked up in the escalation tables and in a precomputed grid of the SIF potential model (fall height and direct control set to unknown).</p>`, 'What happens')}</h3>
+        <textarea id="tool-text" placeholder="Example: Employee was installing conduit from a 10-foot stepladder when the ladder shifted; he fell to the concrete floor and fractured his wrist."></textarea>
+        <div class="controls" style="margin:.6rem 0 0">
+          <button class="primary" id="tool-run" disabled>Code this narrative</button>
+          <button class="link" id="tool-example">Insert an example</button>
+          <span class="muted" id="tool-count"></span>
         </div>
-        <div class="card"><h3>What happens</h3>
-          <ol style="margin:0;padding-left:1.2rem">
-            <li>The text is tokenized with the WordPiece vocabulary of bge-small (max 256 tokens).</li>
-            <li>The distilled int8 ONNX model (${D.summary.student_mb} MB, downloaded once) returns probabilities for 13 mechanisms, 11 energy sources and the high-energy flag. Test macro-F1 ${fmt.dec(D.summary.student_macro_f1_int8, 2)} for mechanism.</li>
-            <li>The predicted codes, which you can override, are looked up in the escalation tables and in a precomputed grid of the SIF potential model (fall height and direct control set to unknown).</li>
-          </ol>
-        </div>
+        <div id="tool-status" class="status"></div>
+        <div class="progress" id="tool-progress" hidden><div></div></div>
       </div>
       <div class="result" id="tool-result" hidden>
         <div class="card"><h3>Coding (editable)</h3>
@@ -567,13 +705,12 @@ const App = (() => {
             <div class="field"><label>Energy source</label><select id="tf-energy">${D.labels.energy_source.map(e => `<option value="${e.code}">${e.name}</option>`).join('')}</select><ul class="probs" id="tp-energy"></ul></div>
             <div class="field"><label>High-energy flag</label><select id="tf-he">${D.labels.high_energy.map(h => `<option value="${h.code}">${h.name}</option>`).join('')}</select><ul class="probs" id="tp-he"></ul></div>
           </div>
-          <div class="note" id="tool-meta"></div>
         </div>
         <div id="tool-reading" class="reading"></div>
         <div class="tiles" id="tool-tiles"></div>
         <div class="grid two">
           ${card('High-energy share of this mechanism by tier', 'tool-he-chart', '', 'short')}
-          <div class="card"><h3>Severe and fatal narratives with the same mechanism</h3><ul class="examples" id="tool-examples"></ul><div class="note">Public OSHA texts from the Severe Injury Reports and IMIS fatality investigations, chosen at random among short narratives.</div></div>
+          <div class="card"><h3>Severe and fatal narratives with the same mechanism${info('Public OSHA texts from the Severe Injury Reports and IMIS fatality investigations, chosen at random among short narratives.', 'About these examples')}</h3><ul class="examples" id="tool-examples"></ul></div>
         </div>
         <details style="margin-top:.8rem"><summary class="muted">Tokens sent to the model</summary><div class="tokens" id="tool-tokens"></div></details>
       </div>`);
@@ -639,10 +776,11 @@ const App = (() => {
         low: 'low escalation potential: important for frequency and days away, but rarely a precursor of a fatality' }[level];
       const rel = v => v >= 1 ? `${fmt.ratio(v)} times as prevalent` : `only ${fmt.ratio(v)} times as prevalent (${fmt.ratio(1 / v)} times rarer)`;
       const reading = el('tool-reading'); reading.className = 'reading ' + level;
-      reading.innerHTML = `Cases coded <b>${mechName[m]}</b> make up ${fmt.pct(row.share_recordable, 1)} of recordables, ${fmt.pct(row.share_severe, 1)} of severe injuries and ${fmt.pct(row.share_fatal, 1)} of fatalities. They are ${rel(erF)} among fatalities as among recordables (95% interval ${fmt.ci(row.ER_fatal_lo, row.ER_fatal_hi)}) and ${rel(erS)} among severe injuries. ` +
+      const full = `Cases coded <b>${mechName[m]}</b> make up ${fmt.pct(row.share_recordable, 1)} of recordables, ${fmt.pct(row.share_severe, 1)} of severe injuries and ${fmt.pct(row.share_fatal, 1)} of fatalities. They are ${rel(erF)} among fatalities as among recordables (95% interval ${fmt.ci(row.ER_fatal_lo, row.ER_fatal_hi)}) and ${rel(erS)} among severe injuries. ` +
         `${fmt.pct(heRow.recordable)} of recordables with this mechanism are high energy, against ${fmt.pct(heRow.fatal)} of fatalities; this case is coded <b>${heName[h].toLowerCase()}</b>. ` +
-        `Suggested reading: <b>${advice}</b>.` +
-        (sif == null ? '' : ` The SIF potential index for this combination (${mechName[m]}, ${energyName[e]}, ${heName[h].toLowerCase()}) is <b>${fmt.ratio(sif)}</b>: with balanced classes, the model’s odds of a severe or fatal outcome versus a recordable are ${sif >= 1 ? 'above' : 'below'} even. The index uses narrative-derived features only, with fall height and direct-control status set to unknown; it is a likelihood ratio, not a probability for this case.`);
+        (sif == null ? '' : `The SIF potential index for this combination (${mechName[m]}, ${energyName[e]}, ${heName[h].toLowerCase()}) is <b>${fmt.ratio(sif)}</b>: with balanced classes, the model’s odds of a severe or fatal outcome versus a recordable are ${sif >= 1 ? 'above' : 'below'} even. The index uses narrative-derived features only, with fall height and direct-control status set to unknown; it is a likelihood ratio, not a probability for this case. `) +
+        `Escalation figures for the mechanism come from the main scope (${fmt.int(D.summary.scope_counts.recordable)} recordable, ${fmt.int(D.summary.scope_counts.severe)} severe, ${fmt.int(D.summary.scope_counts.fatal)} fatal cases in federal OSHA states). Ratios of 0 mean no case of that kind in the numerator tier.`;
+      reading.innerHTML = `<b>${mechName[m]}</b>, ${heName[h].toLowerCase()}: ${rel(erF)} among fatalities as among recordables. Reading: <b>${advice}</b>.${info(full, 'Reading in full')}`;
       html('tool-tiles', tile(fmt.ratio(erS), `Severe vs recordable escalation ratio (95% interval ${fmt.ci(row.ER_severe_lo, row.ER_severe_hi)})`, 'green') +
         tile(fmt.ratio(erF), `Fatal vs recordable escalation ratio (95% interval ${fmt.ci(row.ER_fatal_lo, row.ER_fatal_hi)})`, 'pink') +
         tile(sif == null ? 'n/a' : fmt.ratio(sif), 'SIF potential index, (p severe + p fatal) / p recordable') +
@@ -650,7 +788,6 @@ const App = (() => {
       Charts.bars({ el: 'tool-he-chart', categories: TIERS.map(t => TIER_NAME[t]), valueName: 'High-energy share (%)', max: 100, height: 260,
         series: [{ name: 'High-energy share', color: 'pink', data: TIERS.map(t => (heRow[t] || 0) * 100) }], tooltipFormatter: p => `${p.name}: ${fmt.dec(p.data.raw, 1)}% high energy` });
       if (!el('tool-he-chart').closest('.card').querySelector('.prov')) provAfter('tool-he-chart', { n: scopeN(), script: [SCRIPT.escalation, SCRIPT.sif, SCRIPT.app], note: 'The browser coder is the int8 bge-small student distilled from the fine-tuned Qwen2.5-7B teacher.' });
-      html('tool-meta', `Escalation figures for the mechanism come from the main scope (${fmt.int(D.summary.scope_counts.recordable)} recordable, ${fmt.int(D.summary.scope_counts.severe)} severe, ${fmt.int(D.summary.scope_counts.fatal)} fatal cases in federal OSHA states). Ratios of 0 mean no case of that kind in the numerator tier.`);
       const ex = D.examples[m] || [];
       html('tool-examples', ex.slice(0, 6).map(x => `<li><span class="tag ${x.tier}">${TIER_NAME[x.tier]}</span><span class="muted">${x.case_id}</span><br>${esc(x.narrative)}</li>`).join('') || '<li>No examples for this mechanism.</li>');
     }

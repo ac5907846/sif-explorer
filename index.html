@@ -6,97 +6,93 @@
 <title>Which minor injuries matter? Mechanism-specific severity escalation in US construction</title>
 <meta name="description" content="Companion web app: escalation ratios across three OSHA injury tiers, high-energy exposure, SIF potential, and an in-browser narrative coder.">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20260914">
 </head>
 <body>
+<div class="overlay" id="overlay" role="status" aria-live="polite"><div class="overlay-box"><div class="spinner"></div><div id="overlay-text">Loading the map…</div></div></div>
+
 <header class="top">
   <div class="inner">
     <div class="brand">
       <h1>Which minor injuries matter?</h1>
-      <span class="sub">Mechanism-specific severity escalation in US construction from three national injury tiers. Companion app to the paper.</span>
+      <span class="sub">Severity escalation across three OSHA injury tiers, US construction.</span>
+      <span class="info-wrap"><button type="button" class="info" aria-label="How to read this app">i</button><span class="tip" id="tip-howto"></span></span>
     </div>
     <nav class="tabs" id="nav"></nav>
   </div>
 </header>
 
 <main id="main">
-  <div class="loading-screen" id="loading">Loading data…</div>
+  <section class="page" id="map" data-title="Map">
+    <h2>Map <span class="info-wrap"><button type="button" class="info" aria-label="About the map">i</button><span class="tip">Each state is coloured by the selected measure; the timeline steps through the years of the main scope (severe and fatal 2015 to 2024, recordable 2023 to 2024) and ends on the total. Hatched states run their own OSHA state plan: their severe injury reports are not collected federally, so they are outside the main scope and are shown for reference only. Hover a state for its counts, high-energy share and most frequent mechanism.</span></span></h2>
+    <div id="map-body"></div>
+  </section>
 
   <section class="page" id="overview" data-title="Overview">
-    <h2>Overview</h2>
+    <h2>Overview <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip" id="tip-overview"></span></span></h2>
     <div id="overview-body"></div>
   </section>
 
-  <section class="page" id="explorer" data-title="Escalation explorer">
-    <h2>Escalation explorer</h2>
-    <p class="lead">The escalation ratio of a category is its share among severe or fatal cases divided by its share among recordables. A ratio of 1 means the category keeps the same weight across tiers; 30 means it is thirty times as prevalent among fatalities as among recordable injuries. Intervals are 95% bootstrap intervals.</p>
+  <section class="page" id="explorer" data-title="Escalation">
+    <h2>Escalation explorer <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">The escalation ratio of a category is its share among severe or fatal cases divided by its share among recordables. A ratio of 1 means the category keeps the same weight across tiers; 30 means it is thirty times as prevalent among fatalities as among recordable injuries. Intervals are 95% bootstrap intervals.</span></span></h2>
     <div id="explorer-body"></div>
   </section>
 
   <section class="page" id="sensitivity" data-title="Sensitivity">
-    <h2>Sensitivity</h2>
-    <p class="lead">The ranking of mechanisms holds under alternative scopes (all states, a common 2023 to 2025 window, one NAICS group versus the rest) and under assumed undercounting of minor recordable injuries.</p>
+    <h2>Sensitivity <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">The ranking of mechanisms holds under alternative scopes (all states, a common 2023 to 2025 window, one NAICS group versus the rest) and under assumed undercounting of minor recordable injuries.</span></span></h2>
     <div id="sensitivity-body"></div>
   </section>
 
   <section class="page" id="highenergy" data-title="High energy">
-    <h2>High-energy exposure by tier</h2>
-    <p class="lead">Each narrative received a high-energy flag (energy above the threshold used in serious injury and fatality precursor work). The share of high-energy cases rises steeply from recordable to severe to fatal, and it rises inside almost every mechanism.</p>
+    <h2>High energy <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">Each narrative received a high-energy flag (energy above the threshold used in serious injury and fatality precursor work). The share of high-energy cases rises steeply from recordable to severe to fatal, and it rises inside almost every mechanism.</span></span></h2>
     <div id="highenergy-body"></div>
   </section>
 
   <section class="page" id="within" data-title="Within recordables">
-    <h2>Severity within the recordable tier</h2>
-    <p class="lead">Days away from work is the severity signal available inside the recordable tier. It orders mechanisms very differently from the fatal escalation ratio: the mechanisms that cost the most days are not the ones that kill.</p>
+    <h2>Within recordables <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">Days away from work is the severity signal available inside the recordable tier. It orders mechanisms very differently from the fatal escalation ratio: the mechanisms that cost the most days are not the ones that kill.</span></span></h2>
     <div id="within-body"></div>
   </section>
 
   <section class="page" id="sif" data-title="SIF potential">
-    <h2>SIF potential model</h2>
-    <p class="lead">A gradient boosting model (LightGBM, three classes, class balanced, 5-fold cross-validation) predicts the tier of a case from narrative-derived features only: mechanism, energy source, high-energy flag, fall height and direct-control status. The SIF potential index is the balanced probability of severe or fatal divided by the probability of recordable.</p>
+    <h2>SIF potential <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">A gradient boosting model (LightGBM, three classes, class balanced, 5-fold cross-validation) predicts the tier of a case from narrative-derived features only: mechanism, energy source, high-energy flag, fall height and direct-control status. The SIF potential index is the balanced probability of severe or fatal divided by the probability of recordable.</span></span></h2>
     <div id="sif-body"></div>
   </section>
 
   <section class="page" id="context" data-title="Context">
-    <h2>Contextual patterns</h2>
-    <p class="lead">When and to whom injuries happen: hours into the shift (recordable tier only), month, weekday, occupation and establishment size.</p>
+    <h2>Context <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">When and to whom injuries happen: hours into the shift (recordable tier only), month, weekday, occupation and establishment size.</span></span></h2>
     <div id="context-body"></div>
   </section>
 
   <section class="page" id="establishments" data-title="Establishments">
-    <h2>Establishment linkage</h2>
-    <p class="lead">Severe injury reports from 2023 to 2025 were matched by employer name and location to ITA establishments. Among establishments with at least three recordables, the number of recordables does not predict whether the establishment also reported a severe injury, but the high-energy share of its recordables does.</p>
+    <h2>Establishments <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">Severe injury reports from 2023 to 2025 were matched by employer name and location to ITA establishments. Among establishments with at least three recordables, the number of recordables does not predict whether the establishment also reported a severe injury, but the high-energy share of its recordables does.</span></span></h2>
     <div id="establishments-body"></div>
   </section>
 
   <section class="page" id="models" data-title="Models">
-    <h2>Narrative coders</h2>
-    <p class="lead">Accuracy of the harmonization on 241 gold-labeled test narratives: legacy OSHA codes, a zero-shot LLM, the fine-tuned teacher LLM, and the distilled bge-small student that runs in this browser.</p>
+    <h2>Narrative coders <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">Accuracy of the harmonization on 241 gold-labeled test narratives: legacy OSHA codes, a zero-shot LLM, the fine-tuned teacher LLM, and the distilled bge-small student that runs in this browser.</span></span></h2>
     <div id="models-body"></div>
   </section>
 
   <section class="page" id="cases" data-title="Cases">
-    <h2>Case sample with links to the OSHA records</h2>
-    <p class="lead">A random sample of coded narratives, up to 30 per mechanism and tier, drawn with a fixed seed from the main analytic scope. Every fatal case links to its OSHA accident investigation page, and severe cases that opened an inspection link to that inspection. The Severe Injury Reports and the ITA case detail have no per-case page, so those cards give the dataset row ID and the download page instead. The OSHA case pages are served by OSHA’s IMIS system, which is sometimes unavailable and then shows a server error such as “Failure of Web Server bridge”; the link is correct, try again later or search the summary number shown on the card at the OSHA accident search page. Each card also shows the teacher label used in the paper, the student prediction from the corpus run, and a button that codes the same text in your browser.</p>
+    <h2>Cases <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">A random sample of coded narratives, up to 30 per mechanism and tier, drawn with a fixed seed from the main analytic scope. Every fatal case links to its OSHA accident investigation page, and severe cases that opened an inspection link to that inspection. The Severe Injury Reports and the ITA case detail have no per-case page, so those cards give the dataset row ID and the download page instead. The OSHA case pages are served by OSHA’s IMIS system, which is sometimes unavailable and then shows a server error such as “Failure of Web Server bridge”; the link is correct, try again later or search the summary number shown on the card at the OSHA accident search page. Each card also shows the teacher label used in the paper, the student prediction from the corpus run, and a button that codes the same text in your browser.</span></span></h2>
     <div id="cases-body"></div>
   </section>
 
   <section class="page" id="tool" data-title="Tool">
-    <h2>Narrative coder and escalation lookup</h2>
-    <p class="lead">Paste an incident narrative. The distilled model codes its mechanism, energy source and high-energy flag in your browser; the app then looks up the escalation ratios and the SIF potential index for that combination. You can override every field.</p>
+    <h2>Narrative coder <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">Paste an incident narrative. The distilled model codes its mechanism, energy source and high-energy flag in your browser; the app then looks up the escalation ratios and the SIF potential index for that combination. You can override every field. This tool does not determine OSHA recordability or regulatory compliance and is not a substitute for an investigation. It estimates, from the wording of a narrative, how often incidents of this kind escalate to hospitalization or death in national OSHA data. All inference runs locally in your browser; nothing you type is uploaded or stored.</span></span></h2>
     <div id="tool-body"></div>
   </section>
 </main>
 
 <footer>
-  <div>Data: OSHA Injury Tracking Application Form 301 case detail (2023 to 2025), OSHA Severe Injury Reports (2015 to 2025), OSHA IMIS fatality investigations (2015 to 2025), construction (NAICS 23). All narratives are public records. Charts read from <code>data/*.json</code> generated by <code>build_data.py</code> from the analysis outputs.</div>
-  <div style="margin-top:.4rem">This site does not determine OSHA recordability or regulatory compliance. The narrative coder runs entirely in the browser; nothing you type is uploaded.</div>
+  <div>OSHA ITA Form 301 (2023 to 2025), Severe Injury Reports and IMIS fatality investigations (2015 to 2025), construction, NAICS 23. Data and code: <a id="zenodo-link" href="https://doi.org/10.5281/zenodo.22740970" target="_blank" rel="noopener">Zenodo record</a>.</div>
+  <div>Not a determination of OSHA recordability or compliance. The narrative coder runs in your browser; nothing you type is uploaded.</div>
 </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
-<script src="js/tokenizer.js"></script>
-<script src="js/model.js"></script>
-<script src="js/charts.js"></script>
-<script src="js/app.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script defer src="js/tokenizer.js?v=20260914"></script>
+<script defer src="js/model.js?v=20260914"></script>
+<script defer src="js/charts.js?v=20260914"></script>
+<script defer src="js/app.js?v=20260914"></script>
 </body>
 </html>
