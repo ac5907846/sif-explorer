@@ -142,10 +142,80 @@ button.source:hover, .info-wrap.open button.source { color: var(--ink); }
 
 /* ---------------------------------------------------------------- map page */
 .map-wrap { border: 1px solid var(--line); background: #fff; padding: .4rem .4rem 0; }
-#map-chart { width: 100%; height: 600px; }
+#map-chart { width: 100%; height: auto; aspect-ratio: 1.5; min-height: 340px; max-height: 600px; }   /* the box follows the country’s proportions instead of a fixed height */
 #map-monthly { width: 100%; height: 230px; }
 .map-legend { display: inline-flex; align-items: center; gap: .35rem; font-size: .84rem; color: var(--muted); }
-.map-legend .sw { display: inline-block; width: 16px; height: 12px; border: 1px solid var(--ink); background: repeating-linear-gradient(135deg, #fff 0 2px, #9A9A9A 2px 3px); }
+.map-legend .sw { display: inline-block; width: 16px; height: 12px; border: 1px solid var(--ink); background: repeating-linear-gradient(135deg, #F1F1F1 0 3px, #CFCFCF 3px 4px); border-color: #BBB; }
 .year-note { font-size: .84rem; color: var(--muted); }
-@media (max-width: 900px) { #map-chart { height: 460px; } }
-@media (max-width: 640px) { #map-chart { height: 360px; } }
+
+
+
+/* ---------------------------------------------------------------- navigation: five tabs, the analyses behind one of them */
+nav.subtabs { display: flex; flex-wrap: wrap; gap: .3rem; padding: .45rem 0 .15rem; }
+nav.subtabs[hidden] { display: none; }
+nav.subtabs a { padding: .18rem .65rem; text-decoration: none; color: var(--ink); border: 1px solid var(--line); border-radius: 999px; font-size: .86rem; white-space: nowrap; background: #fff; transition: background .15s, border-color .15s; }
+nav.subtabs a:hover { background: var(--bg-soft); border-color: var(--ink); }
+nav.subtabs a.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+header.top .brand h1 { margin: 0; }
+header.top .brand .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* ---------------------------------------------------------------- findings: the opening picture */
+.hero { border: 1px solid var(--line); background: #fff; padding: .6rem .8rem .7rem; }
+.hero-head { display: flex; align-items: center; justify-content: space-between; gap: .8rem; flex-wrap: wrap; }
+.hero-stages { display: inline-flex; flex-wrap: wrap; gap: .3rem; }
+.hero-stages button, .hero-key button { font: inherit; font-size: .86rem; color: var(--ink); background: var(--bg-soft); border: 1px solid var(--line); border-radius: 999px; padding: .2rem .7rem; cursor: pointer; transition: background .15s, border-color .15s; }
+.hero-stages button:hover, .hero-key button:hover { background: #ECECEC; border-color: #999; }
+.hero-stages button.on { background: var(--blue); border-color: var(--blue-d); }
+.hero-play { position: relative; overflow: hidden; font: inherit; font-size: .86rem; min-width: 4.6rem; padding: .22rem .9rem .3rem; color: var(--ink); background: #fff; border: 1px solid var(--ink); border-radius: 999px; cursor: pointer; }
+.hero-play.on { background: var(--bg-soft); }
+.hero-play i { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--pink-d); transform: scaleX(0); transform-origin: left; }
+.hero-body { display: grid; grid-template-columns: 215px minmax(0, 1fr); gap: .4rem 1rem; align-items: start; margin-top: .5rem; }   /* numbers beside the picture, not above it */
+.hero-read { display: grid; gap: .3rem; align-content: start; }
+.hero-title { font-size: 1.05rem; font-weight: 600; min-height: 3.9em; line-height: 1.3; }
+.hero-nums { display: grid; grid-template-columns: minmax(0, 1fr); gap: .15rem; }
+.hero-num b { display: block; font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 2rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.hero-num span { display: block; font-size: .82rem; color: var(--muted); min-height: 2.4em; line-height: 1.2; }
+.hero-canvas { width: 100%; }
+.hero-canvas canvas { display: block; width: 100%; }
+.hero-key { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .4rem; }
+.hero-key button { font-size: .76rem; padding: .05rem .5rem; }
+.hero-num span { min-height: 0; margin-bottom: .25rem; }
+.hero-key button i { display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: .4em; vertical-align: baseline; }
+.hero-key button.on { background: #fff; border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.tiles.qs { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+a.tile.q { display: block; text-decoration: none; color: var(--ink); transition: transform .15s, box-shadow .15s; }
+a.tile.q:hover { transform: translateY(-2px); box-shadow: 0 3px 10px rgba(0, 0, 0, .12); }
+a.tile.q .qn { font-size: .8rem; font-weight: 600; letter-spacing: .04em; }
+a.tile.q .qt { font-size: .95rem; min-height: 2.9em; margin-bottom: .3rem; }
+@media (max-width: 900px) { .hero-body { grid-template-columns: minmax(0, 1fr); } .hero-title { min-height: 2.6em; } .hero-nums { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .3rem .8rem; } .hero-num b { font-size: 1.5rem; } .hero-num span { min-height: 3.6em; } }
+@media (max-width: 520px) { .hero-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); } .hero-num span { min-height: 2.4em; } }
+
+/* ---------------------------------------------------------------- motion: pages and cards arrive softly; none of it for readers who ask for less motion */
+section.page.active { animation: page-in .35s ease-out both; }
+section.page.active .card, section.page.active .tile { animation: rise .45s ease-out both; }
+section.page.active .card:nth-child(2), section.page.active .tile:nth-child(2) { animation-delay: .05s; }
+section.page.active .card:nth-child(3), section.page.active .tile:nth-child(3) { animation-delay: .1s; }
+section.page.active .card:nth-child(n+4), section.page.active .tile:nth-child(n+4) { animation-delay: .15s; }
+.card { transition: box-shadow .2s; }
+.card:hover { box-shadow: 0 2px 10px rgba(0, 0, 0, .08); }
+@keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { section.page.active, section.page.active .card, section.page.active .tile { animation: none; } a.tile.q:hover { transform: none; } }
+
+/* ---------------------------------------------------------------- compact: less air around everything (2026-09-20) */
+header.top .inner { padding: .45rem 1rem .25rem; }
+header.top .brand h1 { font-size: 1.3rem; }
+nav.tabs { margin-top: .25rem; } nav.tabs a { padding: .25rem .65rem; }
+main { padding: .7rem 1rem 1rem; }
+h2 { font-size: 1.15rem; margin-bottom: .35rem; } h3 { margin-top: .6rem; }
+.grid { gap: .7rem; } .card { padding: .6rem .75rem .7rem; } .card h3 { font-size: 1rem; margin-bottom: .3rem; }
+.chart { height: 340px; } .chart.tall { height: 430px; } .chart.short { height: 230px; }
+.tiles { gap: .55rem; margin: .6rem 0; } .tile { padding: .5rem .7rem; } .tile .value { font-size: 1.4rem; }
+.controls { margin: .35rem 0 .6rem; gap: .4rem 1rem; }
+.message { font-size: 1.15rem; margin: .5rem 0 .7rem; padding: .55rem .8rem; }
+footer { margin-top: 1rem; }
+.hero { user-select: none; }
+.hero-legend { display: grid; gap: .15rem; margin-top: .5rem; padding-top: .45rem; border-top: 1px solid var(--line); font-size: .8rem; color: var(--muted); }
+.hero-legend i { display: inline-block; width: .7em; height: .7em; border-radius: 50%; margin-right: .4em; }
+.map-year { order: 9; margin-left: auto; font-family: Georgia, "Times New Roman", serif; font-size: 1.7rem; line-height: 1; min-width: 5.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.hero-key button { font-size: .72rem; padding: .03rem .42rem; }

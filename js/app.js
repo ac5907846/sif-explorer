@@ -2,7 +2,7 @@
 'use strict';
 
 const App = (() => {
-  const VERSION = '20260914';    // cache-busting query string for every JSON fetch; bump when data/*.json changes
+  const VERSION = '20260920';    // cache-busting query string for every JSON fetch; bump when data/*.json changes
   const D = {};                  // loaded JSON by name
   const rendered = new Set();    // pages already rendered
   const TIERS = ['recordable', 'severe', 'fatal'];
@@ -65,10 +65,10 @@ const App = (() => {
 
   /* ---------------------------------------------------------------- provenance line: OSHA product, filter, script, n, download month */
   const SCRIPT = {
-    escalation: 'analysis/04_escalation_ratios/01_escalation_analysis.py', sif: 'analysis/05_sif_potential_model/01_sif_potential_model.py',
-    context: 'analysis/06_contextual_patterns/01_contextual_analysis.py', linkage: 'analysis/07_establishment_linkage/01_linkage_analysis.py',
-    evaluate: 'analysis/03_llm_harmonization/04_evaluate.py', student: 'analysis/08_distillation_for_web/02_measure_student.py',
-    predict: 'analysis/03_llm_harmonization/03_predict.py', studentCorpus: 'analysis/08_distillation_for_web/03_student_corpus_predictions.py', app: 'web_app/build_data.py',
+    escalation: 'analysis/04_escalation_ratios_bootstrap/01_escalation_analysis.py', sif: 'analysis/05_lightgbm_sif_model/01_sif_potential_model.py',
+    context: 'analysis/06_contextual_logistic_regression/01_contextual_analysis.py', linkage: 'analysis/07_record_linkage_logistic/01_linkage_analysis.py',
+    evaluate: 'analysis/03_qlora_llm_coding/04_evaluate.py', student: 'analysis/08_knowledge_distillation_onnx/02_measure_student.py',
+    predict: 'analysis/03_qlora_llm_coding/03_predict.py', studentCorpus: 'analysis/08_knowledge_distillation_onnx/03_student_corpus_predictions.py', app: 'web_app/build_data.py',
   };
   function prov(o) {
     // o: {src: subset of ['ita','sir','imis'], filter, script (array or string), n, note}
@@ -82,11 +82,14 @@ const App = (() => {
   const scopeN = () => { const sc = D.summary.scope_counts; return `${fmt.int(sc.recordable)} recordable, ${fmt.int(sc.severe)} severe, ${fmt.int(sc.fatal)} fatal`; };
 
   /* ---------------------------------------------------------------- data loading (lazy, per page) and routing */
-  const PAGES = ['map', 'overview', 'explorer', 'sensitivity', 'highenergy', 'within', 'sif', 'context', 'establishments', 'models', 'cases', 'tool'];
-  const INITIAL = ['summary', 'labels', 'us_states', 'state_years', 'monthly'];   // everything the Map page needs, nothing else
-  const PAGE_FILES = { map: [], overview: ['escalation'], explorer: ['escalation'], sensitivity: ['escalation'], highenergy: ['high_energy'], within: ['within_recordable', 'escalation'],
+  const PAGES = ['findings', 'map', 'overview', 'explorer', 'sensitivity', 'highenergy', 'within', 'sif', 'context', 'establishments', 'models', 'cases', 'tool'];
+  const INITIAL = ['summary', 'labels', 'hero'];   // what the opening picture needs, nothing else; the map files load with the Map page
+  const GROUP = ['overview', 'explorer', 'sensitivity', 'highenergy', 'within', 'sif', 'context', 'establishments', 'models'];   // the pages behind the Analyses tab
+  const PRIMARY = [['findings', 'Findings'], ['map', 'Map'], ['overview', 'Analyses'], ['cases', 'Cases'], ['tool', 'Tool']];
+  const LANDING = ['', '#findings'].includes(location.hash);   // the picture plays by itself only on the landing view, not on a deep link
+  const PAGE_FILES = { findings: [], map: ['us_states', 'state_years', 'monthly'], overview: ['escalation'], explorer: ['escalation'], sensitivity: ['escalation'], highenergy: ['high_energy'], within: ['within_recordable', 'escalation'],
     sif: ['sif'], context: ['context'], establishments: ['establishments'], models: ['models'], cases: ['cases_sample'], tool: ['escalation', 'high_energy', 'sif_lookup', 'examples'] };
-  const RENDER = { map: renderMap, overview: renderOverview, explorer: renderExplorer, sensitivity: renderSensitivity, highenergy: renderHighEnergy, within: renderWithin,
+  const RENDER = { findings: renderFindings, map: renderMap, overview: renderOverview, explorer: renderExplorer, sensitivity: renderSensitivity, highenergy: renderHighEnergy, within: renderWithin,
     sif: renderSif, context: renderContext, establishments: renderEstablishments, models: renderModels, cases: renderCases, tool: renderTool };
   const pending = {};
   function fetchJson(f) {
@@ -114,17 +117,22 @@ const App = (() => {
     D.labels.high_energy.forEach(h => heName[h.code] = h.name);
     html('tip-howto', howToText());
     const nav = el('nav');
-    PAGES.forEach(p => { const a = document.createElement('a'); a.href = '#' + p; a.textContent = el(p).dataset.title; a.dataset.page = p; nav.appendChild(a); });
+    PRIMARY.forEach(([p, t]) => { const a = document.createElement('a'); a.href = '#' + p; a.textContent = t; a.dataset.page = p; nav.appendChild(a); });
+    GROUP.forEach(p => { const a = document.createElement('a'); a.href = '#' + p; a.textContent = el(p).dataset.title; a.dataset.page = p; el('subnav').appendChild(a); });
     window.addEventListener('hashchange', route);
     await route();
   }
 
   let routing = 0;
   async function route() {
-    let page = (location.hash || '#map').slice(1);
-    if (!PAGES.includes(page)) page = 'map';
+    let page = (location.hash || '#findings').slice(1);
+    if (!PAGES.includes(page)) page = 'findings';
+    if (page !== 'findings' && window.Hero && Hero.ready()) Hero.pause();
     PAGES.forEach(p => el(p).classList.toggle('active', p === page));
-    document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === page));
+    const grouped = GROUP.includes(page);
+    document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.page === page || (grouped && a.dataset.page === 'overview')));
+    document.querySelectorAll('#subnav a').forEach(a => a.classList.toggle('active', a.dataset.page === page));
+    el('subnav').hidden = !grouped;
     window.scrollTo(0, 0);
     if (!rendered.has(page)) {
       const files = PAGE_FILES[page].filter(f => !D[f]);
@@ -140,26 +148,43 @@ const App = (() => {
       overlay(false);
     }
     Charts.resizeAll();
+    if (page === 'findings' && window.Hero && Hero.ready()) Hero.resize();
+    // a section id equals its hash, so on a revisit the browser scrolls the section under the sticky header after this handler: undo it
+    requestAnimationFrame(() => window.scrollTo(0, 0));
   }
 
   function howToText() {
     const S = D.summary, sc = S.scope_counts;
-    return `<p><b>Map</b> animates state counts by tier through the years. <b>Overview</b> gives the headline numbers. <b>Escalation</b> shows shares by tier and the ratios with intervals, for mechanisms or energy sources. <b>Sensitivity</b> repeats the ratios under other scopes and undercount factors. <b>High energy</b> and <b>Within recordables</b> contrast the two severity signals available inside the recordable tier. <b>SIF potential</b> summarizes the case-level model. <b>Context</b> covers shift hour, season, weekday, occupation and establishment size. <b>Establishments</b> links severe reports to ITA establishments. <b>Models</b> documents coder accuracy. <b>Cases</b> lists sampled narratives with links to the OSHA records.</p>
+    return `<p><b>Findings</b> opens with the accident triangle split by injury mechanism. <b>Map</b> animates state counts by tier through the years. <b>Analyses</b> holds the detailed pages: <b>Overview</b> gives the headline numbers. <b>Escalation</b> shows shares by tier and the ratios with intervals, for mechanisms or energy sources. <b>Sensitivity</b> repeats the ratios under other scopes and undercount factors. <b>High energy</b> and <b>Within recordables</b> contrast the two severity signals available inside the recordable tier. <b>SIF potential</b> summarizes the case-level model. <b>Context</b> covers shift hour, season, weekday, occupation and establishment size. <b>Establishments</b> links severe reports to ITA establishments. <b>Models</b> documents coder accuracy. <b>Cases</b> lists sampled narratives with links to the OSHA records.</p>
       <p><b>Tool</b> codes a narrative you paste and returns its escalation ratios, high-energy share and SIF potential index, all computed locally in your browser.</p>
       <p>Corpus: ${fmt.int(S.corpus_n)} construction narratives coded; main analytic scope ${fmt.int(sc.recordable + sc.severe + sc.fatal)} cases in ${S.n_states} federal OSHA states. Every chart has a Source link with the OSHA product, filter, n and script.</p>`;
   }
 
-  /* ---------------------------------------------------------------- map (landing page): choropleth with a year timeline, monthly counts below */
+  /* ---------------------------------------------------------------- findings (landing page): the animated triangle picture and the three research questions */
+  function renderFindings() {
+    const Hd = D.hero, named = Hd.mechanisms.filter(m => !m.other), hi = named[0], lo = named[named.length - 1];
+    const q = (href, n, text, value, label, color) => `<a class="tile q ${color}" href="${href}"><div class="qn">${n}</div><div class="qt">${text}</div><div class="value">${value}</div><div class="label">${label}</div></a>`;
+    html('findings-body', `<div class="hero" id="hero"></div><div class="tiles qs">` +
+      q('#explorer', 'RQ1', 'Does each mechanism hold a fixed share across the three tiers?', `${fmt.ratio(lo.er_fatal[0])} to ${fmt.ratio(hi.er_fatal[0])}`, `fatal ratio, ${lo.name.toLowerCase()} to ${hi.name.toLowerCase()}`, 'blue') +
+      q('#highenergy', 'RQ2', 'Do minor and serious injuries share their mechanism and their energy level?', `${fmt.pct(Hd.he_share.recordable)} to ${fmt.pct(Hd.he_share.fatal)}`, 'high-energy exposure, recordable cases to fatalities', 'pink') +
+      q('#sif', 'RQ3', 'Can the attributes of a narrative rank cases by their potential to become a serious injury or fatality?', 'SIF potential index', 'from mechanism, energy source and the high-energy flag', 'green') +
+      `</div>` + prov({ n: scopeN(), script: [SCRIPT.escalation, 'web_app/build_hero.py'], note: 'Each dot of the picture is one tenth of a percent of its tier, so the width of a layer is the share of the mechanism in that tier.' }));
+    Hero.mount(el('hero'), Hd, fmt, LANDING);
+  }
+
+  /* ---------------------------------------------------------------- map: choropleth with a year timeline, monthly counts below */
   const METRICS = {
     severe: { label: 'Severe injury reports', short: 'Severe', tier: 'severe', color: 'green' },
     fatal: { label: 'Fatality investigations', short: 'Fatal', tier: 'fatal', color: 'pink' },
     recordable: { label: 'Recordable cases', short: 'Recordable', tier: 'recordable', color: 'blue' },
     he: { label: 'High-energy share of recordables', short: 'High-energy share', tier: 'recordable', color: 'gray', share: true },
   };
-  const RAMP = { green: ['#F1F7EE', '#D9EAD3', '#9CC98C', '#4E8A3E', '#2B5620'], pink: ['#F8EEF3', '#EAD1DC', '#D39BB8', '#B0507E', '#722E51'],
-                 blue: ['#EEF6F9', '#D4EBF2', '#95C8D9', '#3E86A0', '#234E5F'], gray: ['#F4F4F4', '#BFBFBF', '#8F8F8F', '#5C5C5C', '#1E1E1E'] };
+  // one hue per tier as everywhere in the app, each a smooth light-to-dark ramp; the share measure has its own hue so it is not read as a count
+  const RAMP = { green: ['#F4FAF2', '#CFE8C6', '#8CC98A', '#3E9B5A', '#14603A'], pink: ['#FDF1F4', '#F8C9D6', '#EE8DB2', '#C2408F', '#6B0F6B'],
+                 blue: ['#F2F8FC', '#CBE2F1', '#86BFE0', '#3583BD', '#0C447F'], gray: ['#F7F4FA', '#DAD3EA', '#AFA0D1', '#7A5BB0', '#452A7A'] };
   const SMALL = new Set(['RI', 'CT', 'MA', 'NJ', 'DE', 'MD', 'DC', 'VT', 'NH']);
-  const HATCH = { symbol: 'rect', dashArrayX: [1, 0], dashArrayY: [1, 4], rotation: Math.PI / 4, color: 'rgba(0,0,0,.28)', symbolSize: 1 };
+  const HATCH = { symbol: 'rect', dashArrayX: [1, 0], dashArrayY: [1, 5], rotation: Math.PI / 4, color: 'rgba(0,0,0,.13)', symbolSize: 1 };
+  const MAP_ASPECT = 1.62;   // width over height of the contiguous states in the Albers projection
   function renderMap() {
     const SY = D.state_years, G = D.us_states, MO = D.monthly;
     echarts.registerMap('us', G);
@@ -170,7 +195,8 @@ const App = (() => {
       <div class="controls">
         <span class="group"><span>Colour by</span><span id="mp-metric"></span></span>
         <span class="map-legend"><span class="sw"></span> State plan states, outside the main scope</span>
-        <span class="year-note">Severe and fatal ${Y.severe[0]} to ${Y.severe[Y.severe.length - 1]}; recordable ${Y.recordable[0]} to ${Y.recordable[Y.recordable.length - 1]}; ${fedStates.length} federal OSHA states.</span>
+        <span class="map-year" id="map-year" aria-live="polite"></span>
+        <span class="year-note">${Y.severe[0]} to ${Y.severe[Y.severe.length - 1]}, recordable from ${Y.recordable[0]}; ${fedStates.length} federal OSHA states</span>
       </div>
       <div class="map-wrap"><div id="map-chart"></div></div>
       ${prov({ filter: `construction (NAICS 23), all states; counts by the state of the incident over the years of the main scope, federal OSHA states coloured`, n: `${fmt.int(fedStates.reduce((a, s) => a + SY.states[s].n.recordable, 0))} recordable, ${fmt.int(fedStates.reduce((a, s) => a + SY.states[s].n.severe, 0))} severe, ${fmt.int(fedStates.reduce((a, s) => a + SY.states[s].n.fatal, 0))} fatal in the coloured states`, script: [SCRIPT.escalation, SCRIPT.app], note: 'Boundaries: Census cartographic boundary file 1:20,000,000 (2023), simplified.' })}
@@ -179,6 +205,11 @@ const App = (() => {
     el('mp-metric').replaceWith(seg('mp-metric', Object.keys(METRICS).map(k => ({ v: k, label: METRICS[k].short })), state.metric, v => { state.metric = v; state.frame = 0; draw(); }));
     const chart = Charts.init('map-chart');
 
+    /* the largest box of the country's own proportions that fits above the timeline */
+    function mapBox() {
+      const w = chart.getWidth() - 16, top = 6, h = chart.getHeight() - top - 64;
+      const width = Math.min(w, h * MAP_ASPECT); return { size: Math.round(width), cy: Math.round(top + h / 2) };
+    }
     function valueOf(abbr, y) {
       const st = SY.states[abbr], M = METRICS[state.metric]; if (!st) return null;
       if (M.share) return y === 'All' ? st.he[M.tier] : st.he_year[M.tier][y];
@@ -198,10 +229,11 @@ const App = (() => {
     function draw() {
       const M = METRICS[state.metric], years = Y[M.tier];
       state.frames = years.map(String).concat('All');
-      const dataFor = y => G.features.map(f => {
-        const a = f.properties.abbr, st = SY.states[a], federal = st && st.federal;
-        const small = SMALL.has(a) ? { label: { show: false } } : {};   // too small for a permanent label; the name shows on hover
-        return federal ? Object.assign({ name: f.properties.name, value: valueOf(a, y) }, small) : Object.assign({ name: f.properties.name, value: null, itemStyle: { areaColor: '#F9F9F9', decal: HATCH }, emphasis: { itemStyle: { areaColor: '#F0F0F0' } } }, small);
+      const dataFor = (y, max) => G.features.map(f => {
+        const a = f.properties.abbr, st = SY.states[a], federal = st && st.federal, v = federal ? valueOf(a, y) : null;
+        // too small for a permanent label (the name shows on hover); on the dark end of the ramp the label turns white
+        const small = SMALL.has(a) ? { label: { show: false } } : { label: { color: federal && v / max > .55 ? '#fff' : '#333' } };
+        return federal ? Object.assign({ name: f.properties.name, value: v }, small) : Object.assign({ name: f.properties.name, value: null, itemStyle: { areaColor: '#F1F1F1', decal: HATCH }, emphasis: { itemStyle: { areaColor: '#E6E6E6' } } }, small);
       });
       const narrow = chart.getWidth() < 700;
       const maxYear = Math.max(...fedStates.flatMap(a => years.map(y => valueOf(a, String(y)) || 0)));
@@ -217,20 +249,22 @@ const App = (() => {
             checkpointStyle: { color: '#000', borderColor: '#000', symbolSize: 11, animationDuration: 300 }, progress: { lineStyle: { color: '#000', width: 1 }, itemStyle: { color: '#000', borderColor: '#000' }, label: { color: '#000' } },
             controlStyle: { color: '#000', borderColor: '#000', itemSize: 18, itemGap: 10 }, emphasis: { itemStyle: { color: '#000' }, label: { color: '#000' } } },
           tooltip: Object.assign({ trigger: 'item', formatter: tooltip }, Charts.tooltipBox()),
-          series: [{ type: 'map', map: 'us', name: M.label, projection: Charts.albersUSA(), roam: false, top: narrow ? 40 : 8, bottom: 62, left: 8, right: 8, aspectScale: 1,
-            itemStyle: { areaColor: '#F9F9F9', borderColor: '#000', borderWidth: .7 },
-            emphasis: { label: { show: true, color: '#000', fontSize: 11 }, itemStyle: { areaColor: 'inherit', borderWidth: 1.6 } }, select: { disabled: true },
+          series: [{ type: 'map', map: 'us', name: M.label, projection: Charts.albersUSA(), roam: false, aspectScale: 1, layoutCenter: ['50%', (mapBox().cy) + 'px'], layoutSize: mapBox().size,   // a centre and one size keep the shape of the country at any window size
+            itemStyle: { areaColor: '#F1F1F1', borderColor: '#fff', borderWidth: .8 },
+            emphasis: { label: { show: true, color: '#000', fontSize: 11 }, itemStyle: { areaColor: 'inherit', borderColor: '#000', borderWidth: 1.4 } }, select: { disabled: true },
             label: { show: true, formatter: p => abbrOf[p.name] || '', fontSize: 10, color: '#000' }, labelLayout: { hideOverlap: true } }],
         },
         options: state.frames.map(y => ({
-          title: { text: y === 'All' ? 'All years' : y, subtext: M.label, right: narrow ? 8 : 30, top: narrow ? 2 : 8, textAlign: 'right', textStyle: { fontSize: narrow ? 18 : 30, fontWeight: 400, color: '#000' }, subtextStyle: { color: '#444', fontSize: narrow ? 10 : 12 } },
           visualMap: visual(y === 'All' ? maxAll : maxYear),
-          series: [{ data: dataFor(y) }],
+          series: [{ data: dataFor(y, (y === 'All' ? maxAll : maxYear) || 1) }],
         })),
       }, { notMerge: true });
-      syncMonthly();
+      showYear(); syncMonthly();
     }
-    chart.on('timelinechanged', e => { state.frame = e.currentIndex; syncMonthly(); });
+    // the year stands in the controls row, outside the chart, so it can never sit on a state at any window size
+    const showYear = () => { const y = state.frames[state.frame] || 'All'; el('map-year').textContent = y === 'All' ? 'All years' : y; };
+    chart.on('timelinechanged', e => { state.frame = e.currentIndex; showYear(); syncMonthly(); });
+    let mapRt; window.addEventListener('resize', () => { clearTimeout(mapRt); mapRt = setTimeout(() => { if (el('map').classList.contains('active')) { chart.resize(); chart.setOption({ baseOption: { series: [{ layoutCenter: ['50%', mapBox().cy + 'px'], layoutSize: mapBox().size }] } }); } }, 120); });
 
     // monthly counts: a compact line chart with a progressive first draw; the shaded year follows the timeline
     const x = MO.ym;
@@ -611,7 +645,7 @@ const App = (() => {
         tooltipFormatter: p => `<b>${p.name}</b> (n = ${M.test_support[MECH_ORDER[p.dataIndex]]})<br>${p.seriesName}: F1 ${fmt.dec(p.data.raw, 2)}` });
     }
     draw();
-    provAfter('mo-f1', { filter: 'gold test split of the adjudicated labels, all three sources', n: coders[0].n, script: [SCRIPT.evaluate, SCRIPT.student], note: 'Gold labels and coding rules are in analysis/02_taxonomy_and_gold_labels of the repository.' });
+    provAfter('mo-f1', { filter: 'gold test split of the adjudicated labels, all three sources', n: coders[0].n, script: [SCRIPT.evaluate, SCRIPT.student], note: 'Gold labels and coding rules are in analysis/02_gold_standard_manual_coding of the repository.' });
   }
 
   /* ---------------------------------------------------------------- cases */
