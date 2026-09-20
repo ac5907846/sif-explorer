@@ -162,7 +162,7 @@ const App = (() => {
     const S = D.summary, sc = S.scope_counts;
     return `<p><b>Findings</b> opens with the accident triangle split by injury mechanism. <b>Map</b> animates state counts by tier through the years. <b>Analyses</b> holds the detailed pages: <b>Overview</b> gives the headline numbers. <b>Escalation</b> shows shares by tier and the ratios with intervals, for mechanisms or energy sources. <b>Sensitivity</b> repeats the ratios under other scopes and undercount factors. <b>High energy</b> and <b>Within recordables</b> contrast the two severity signals available inside the recordable tier. <b>SIF potential</b> summarizes the case-level model. <b>Context</b> covers shift hour, season, weekday, occupation and establishment size. <b>Establishments</b> links severe reports to ITA establishments. <b>Models</b> documents coder accuracy. <b>Cases</b> lists sampled narratives with links to the OSHA records.</p>
       <p><b>Tool</b> codes a narrative you paste and returns its escalation ratios, high-energy share and SIF potential index, all computed locally in your browser.</p>
-      <p>Corpus: ${fmt.int(S.corpus_n)} construction narratives coded; main analytic scope ${fmt.int(sc.recordable + sc.severe + sc.fatal)} cases in ${S.n_states} federal OSHA states. Every chart has a Source link with the OSHA product, filter, n and script.</p>`;
+      <p>Narratives coded: ${fmt.int(S.corpus_n)} construction cases; main analytic scope ${fmt.int(sc.recordable + sc.severe + sc.fatal)} cases in ${S.n_states} federal OSHA states. Every chart has a Source link with the OSHA product, filter, n and script.</p>`;
   }
 
   /* ---------------------------------------------------------------- findings (landing page): the animated triangle picture and the three research questions */
@@ -222,7 +222,7 @@ const App = (() => {
     }
     function tooltip(p) {
       const a = abbrOf[p.name], st = SY.states[a], y = state.frames[state.frame] || 'All';
-      if (!st) return `<b>${p.name}</b><br>No cases in the corpus.`;
+      if (!st) return `<b>${p.name}</b><br>No cases in the dataset.`;
       const yr = t => (y === 'All' || !Y[t].includes(Number(y))) ? null : st.by_year[t][y];
       const line = t => `${TIER_NAME[t]}: ${y !== 'All' && yr(t) != null ? `<b>${fmt.int(yr(t))}</b> in ${y}, ` : ''}${fmt.int(st.n[t])} in ${Y[t][0]} to ${Y[t][Y[t].length - 1]}`;
       const top = t => st.top_mech[t] ? `${mechName[st.top_mech[t][0]] || st.top_mech[t][0]} (${fmt.pct(st.top_mech[t][1])} of ${t})` : 'n/a';
@@ -302,7 +302,7 @@ const App = (() => {
         ${tile(fmt.dec(S.auc_fatal_vs_recordable, 2), 'AUC, fatal vs recordable, SIF potential model')}
         ${tile(`${S.student_mb} MB`, `Browser model (bge-small int8), macro-F1 ${fmt.dec(S.student_macro_f1_int8, 2)} vs teacher ${fmt.dec(S.teacher_macro_f1, 2)}`)}
       </div>
-      ${prov({ n: scopeN(), script: [SCRIPT.escalation, SCRIPT.sif, SCRIPT.linkage, SCRIPT.student], note: `Corpus coded: ${fmt.int(S.provenance.corpus_by_source.ITA)} ITA, ${fmt.int(S.provenance.corpus_by_source.SIR)} SIR and ${fmt.int(S.provenance.corpus_by_source.IMIS)} IMIS narratives; the counts above are the cases inside the main scope.` })}
+      ${prov({ n: scopeN(), script: [SCRIPT.escalation, SCRIPT.sif, SCRIPT.linkage, SCRIPT.student], note: `Narratives coded: ${fmt.int(S.provenance.corpus_by_source.ITA)} ITA, ${fmt.int(S.provenance.corpus_by_source.SIR)} SIR and ${fmt.int(S.provenance.corpus_by_source.IMIS)} IMIS narratives; the counts above are the cases inside the main scope.` })}
       <div class="grid two">
         ${card('Share of each mechanism by tier (log scale)', 'ov-slope', 'Pink lines rise across tiers (fatal escalation ratio 1.5 or more), blue lines fall (.67 or less), gray lines stay roughly flat. Hover a line for the shares. Main scope: ' + S.n_states + ' federal OSHA states.')}
         <div class="card"><h3>Fatal escalation ratio by mechanism${info('Share of the mechanism among fatalities divided by its share among recordables, main scope, with the 95% bootstrap interval. Sorted by ratio; dashed line at 1.', 'About this chart')}</h3><div id="ov-er" class="chart"></div></div>
@@ -693,7 +693,7 @@ const App = (() => {
         ? `<a class="osha" href="${c.url}" target="_blank" rel="noopener" title="Opens the OSHA IMIS page; if OSHA answers with a server error, its IMIS backend is down, try again later">View at OSHA</a> <span class="muted small">${esc(c.url_note)}</span>`
         : `<span class="osha muted">No per-case page: ${esc(c.url_note)}, <a href="${c.url}" target="_blank" rel="noopener">download page</a></span>`;
       const student = c.student_mechanism
-        ? `<span>Student (corpus run): <b>${mechName[c.student_mechanism]}</b>${c.student_p != null ? ` (p ${fmt.dec(c.student_p, 2)})` : ''}${c.student_mechanism !== c.mechanism ? ' <span class="tag">differs</span>' : ''}</span>` : '';
+        ? `<span>Student (full run): <b>${mechName[c.student_mechanism]}</b>${c.student_p != null ? ` (p ${fmt.dec(c.student_p, 2)})` : ''}${c.student_mechanism !== c.mechanism ? ' <span class="tag">differs</span>' : ''}</span>` : '';
       return `<div class="case" data-id="${c.id}">
         <div class="head"><span class="tag ${c.tier}">${TIER_NAME[c.tier]}</span><span class="id">${esc(c.id)}</span><span class="muted">${esc(c.date)}, ${esc(c.state || '')}</span>${link}</div>
         <p class="text">${esc(c.narrative)}</p>

@@ -5,7 +5,7 @@
    max 100 chars per word, [UNK] for words that cannot be split), TemplateProcessing [CLS] A [SEP],
    truncation to max_length tokens including the two special tokens.
    The Python file tests/test_tokenizer.py is a line by line port of this logic and is checked
-   against the HuggingFace tokenizer on corpus narratives. Keep the two in sync. */
+   against the HuggingFace tokenizer on the dataset narratives. Keep the two in sync. */
 'use strict';
 
 const WordPiece = (() => {

@@ -6,9 +6,9 @@
 <title>The accident triangle is mechanism-specific: US construction injuries across three OSHA tiers</title>
 <meta name="description" content="Companion web app: escalation ratios across three OSHA injury tiers, high-energy exposure, SIF potential, and an in-browser narrative coder.">
 <link rel="icon" href="data:,">
-<link rel="preload" href="data/hero.json?v=20260922" as="fetch" crossorigin>
-<link rel="preload" href="data/summary.json?v=20260922" as="fetch" crossorigin>
-<link rel="stylesheet" href="css/style.css?v=20260922">
+<link rel="preload" href="data/hero.json?v=20260923" as="fetch" crossorigin>
+<link rel="preload" href="data/summary.json?v=20260923" as="fetch" crossorigin>
+<link rel="stylesheet" href="css/style.css?v=20260923">
 </head>
 <body>
 <div class="overlay" id="overlay" role="status" aria-live="polite"><div class="overlay-box"><div class="spinner"></div><div id="overlay-text">Loading…</div></div></div>
@@ -81,7 +81,7 @@
   </section>
 
   <section class="page" id="cases" data-title="Cases">
-    <h2>Cases <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">A random sample of coded narratives, up to 30 per mechanism and tier, drawn with a fixed seed from the main analytic scope. Every fatal case links to its OSHA accident investigation page, and severe cases that opened an inspection link to that inspection. The Severe Injury Reports and the ITA case detail have no per-case page, so those cards give the dataset row ID and the download page instead. The OSHA case pages are served by OSHA’s IMIS system, which is sometimes unavailable and then shows a server error such as “Failure of Web Server bridge”; the link is correct, try again later or search the summary number shown on the card at the OSHA accident search page. Each card also shows the teacher label used in the paper, the student prediction from the corpus run, and a button that codes the same text in your browser.</span></span></h2>
+    <h2>Cases <span class="info-wrap"><button type="button" class="info" aria-label="About this page">i</button><span class="tip">A random sample of coded narratives, up to 30 per mechanism and tier, drawn with a fixed seed from the main analytic scope. Every fatal case links to its OSHA accident investigation page, and severe cases that opened an inspection link to that inspection. The Severe Injury Reports and the ITA case detail have no per-case page, so those cards give the dataset row ID and the download page instead. The OSHA case pages are served by OSHA’s IMIS system, which is sometimes unavailable and then shows a server error such as “Failure of Web Server bridge”; the link is correct, try again later or search the summary number shown on the card at the OSHA accident search page. Each card also shows the teacher label used in the paper, the student prediction from the full run, and a button that codes the same text in your browser.</span></span></h2>
     <div id="cases-body"></div>
   </section>
 
@@ -96,12 +96,12 @@
   <div>Not a determination of OSHA recordability or compliance. The narrative coder runs in your browser; nothing you type is uploaded.</div>
 </footer>
 
-<script defer src="js/tokenizer.js?v=20260922"></script>
-<script defer src="js/model.js?v=20260922"></script>
-<script defer src="js/hero.js?v=20260922"></script>
-<script defer src="js/guide.js?v=20260922"></script>
-<script defer src="js/charts.js?v=20260922"></script>
-<script defer src="js/app.js?v=20260922"></script>
+<script defer src="js/tokenizer.js?v=20260923"></script>
+<script defer src="js/model.js?v=20260923"></script>
+<script defer src="js/hero.js?v=20260923"></script>
+<script defer src="js/guide.js?v=20260923"></script>
+<script defer src="js/charts.js?v=20260923"></script>
+<script defer src="js/app.js?v=20260923"></script>
 <script async src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </body>
 </html>
