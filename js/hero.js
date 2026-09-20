@@ -191,18 +191,19 @@ const Hero = (() => {
     let playing = false, gen = 0, idx = 0, btn, bar;
     const E = c => [c];
     const STEPS = [
-      { ms: 3400, run: s => { go(0); return s(3400); } },
+      { ms: 3000, run: s => { go(0); return s(3000); } },
       { ms: 6200, run: s => { go(1); return s(2000).then(() => { spotlight(E('STRUCK_BY')); return s(1800); }).then(() => { spotlight(E('FALL_LOWER')); return s(1800); }).then(() => { spotlight(null); return s(600); }); } },
       { ms: 12000, run: s => { go(2); let p = s(2800); ['ELECTRICAL', 'FALL_LOWER', 'TRANSPORT', 'OVEREXERTION', 'STRUCK_AGAINST'].forEach(c => { p = p.then(() => { spotlight(E(c)); return s(1700); }); }); return p.then(() => { spotlight(null); return s(700); }); } },
       { ms: 5200, run: s => { go(3); return s(5200); } },
       { ms: 5200, run: s => { go(4, H.top3.mechanisms); return s(5200); } }];
     const total = STEPS.reduce((a, x) => a + x.ms, 0);
-    function sleep(ms) { const g = gen; return new Promise((res, rej) => setTimeout(() => (g === gen && playing ? res() : rej('stop')), ms)); }
+    let lap = 0; const pace = () => (lap === 0 ? .5 : 1);              // the first lap runs at twice the speed, so a visitor sees the whole story soon
+    function sleep(ms) { const g = gen; return new Promise((res, rej) => setTimeout(() => (g === gen && playing ? res() : rej('stop')), ms * pace())); }
     function loop() {
       const g = gen, st = STEPS[idx], before = STEPS.slice(0, idx).reduce((a, x) => a + x.ms, 0);
       bar.style.transition = 'none'; bar.style.transform = `scaleX(${before / total})`; bar.getBoundingClientRect();
-      bar.style.transition = `transform ${st.ms}ms linear`; bar.style.transform = `scaleX(${(before + st.ms) / total})`;
-      st.run(sleep).then(() => { if (g !== gen) return; idx = (idx + 1) % STEPS.length; loop(); }, () => {});
+      bar.style.transition = `transform ${st.ms * pace()}ms linear`; MOVE = lap === 0 ? 950 : 1500; bar.style.transform = `scaleX(${(before + st.ms) / total})`;
+      st.run(sleep).then(() => { if (g !== gen) return; idx = (idx + 1) % STEPS.length; if (idx === 0) lap++; loop(); }, () => {});
     }
     function paintBtn() { btn.firstChild.textContent = playing ? 'Pause' : 'Play'; btn.setAttribute('aria-label', (playing ? 'Pause' : 'Play') + ' the animation'); btn.classList.toggle('on', playing); }
     function play() { if (playing) return; playing = true; gen++; idx = Math.min(stage, STEPS.length - 1); paintBtn(); loop(); }
@@ -239,7 +240,12 @@ const Hero = (() => {
     });
     cv.addEventListener('mouseleave', () => { if (!tour.playing() && stage >= 2 && stage !== 4 && spot) spotlight(null); });
     buildDots(); size(); tour.attach(host.querySelector('.hero-play'));
-    stage = 0; setTargets(0, true); dots.forEach(d => { d.c0 = d.c1 = colourOf(d, 0); }); paint(); readout(); ready = true;
+    stage = 0;
+    if (autoplay && !reduced) {                                      // the dots rain into the triangle as soon as the page opens
+      dots.forEach(d => { d.x = d.A.x + (Math.random() - .5) * 240; d.y = -20 - Math.random() * HT * .9; d.r = d.A.r; d.a = 0; d.c1 = colourOf(d, 0); });
+      MOVE = 950; setTargets(0, false);
+    } else { setTargets(0, true); dots.forEach(d => { d.c0 = d.c1 = colourOf(d, 0); }); paint(); }
+    readout(); ready = true;
     let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (cv.isConnected && cv.parentElement.clientWidth && Math.floor(cv.parentElement.clientWidth) !== W) { size(); setTargets(stage, true); paint(); } }, 150); });
     if (autoplay && !reduced) tour.play();
   }

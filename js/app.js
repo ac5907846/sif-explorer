@@ -2,7 +2,7 @@
 'use strict';
 
 const App = (() => {
-  const VERSION = '20260920';    // cache-busting query string for every JSON fetch; bump when data/*.json changes
+  const VERSION = '20260922';    // cache-busting query string for every JSON fetch; bump when data/*.json changes
   const D = {};                  // loaded JSON by name
   const rendered = new Set();    // pages already rendered
   const TIERS = ['recordable', 'severe', 'fatal'];
@@ -134,6 +134,11 @@ const App = (() => {
     document.querySelectorAll('#subnav a').forEach(a => a.classList.toggle('active', a.dataset.page === page));
     el('subnav').hidden = !grouped;
     window.scrollTo(0, 0);
+    if (page !== 'findings' && !window.echarts) {   // the chart library loads in the background; only the chart pages wait for it
+      overlay(true, 'Loading…'); const t0 = Date.now();
+      while (!window.echarts && Date.now() - t0 < 30000) await new Promise(r => setTimeout(r, 60));
+      if (!window.echarts) { html(page + '-body', 'The chart library could not be loaded. Check the connection and reload.'); overlay(false); return; }
+    }
     if (!rendered.has(page)) {
       const files = PAGE_FILES[page].filter(f => !D[f]);
       const token = ++routing;
@@ -723,7 +728,8 @@ const App = (() => {
       <div class="disclaimer">Not a determination of OSHA recordability or compliance; nothing you type leaves your browser.${info('This tool does not determine OSHA recordability or regulatory compliance and is not a substitute for an investigation. It estimates, from the wording of a narrative, how often incidents of this kind escalate to hospitalization or death in national OSHA data. All inference runs locally in your browser; nothing you type is uploaded or stored.', 'Disclaimer in full')}</div>
       <div class="card">
         <h3>Narrative${info(`<p>1. The text is tokenized with the WordPiece vocabulary of bge-small (max 256 tokens).</p><p>2. The distilled int8 ONNX model (${D.summary.student_mb} MB, downloaded once) returns probabilities for 13 mechanisms, 11 energy sources and the high-energy flag. Test macro-F1 ${fmt.dec(D.summary.student_macro_f1_int8, 2)} for mechanism.</p><p>3. The predicted codes, which you can override, are looked up in the escalation tables and in a precomputed grid of the SIF potential model (fall height and direct control set to unknown).</p>`, 'What happens')}</h3>
-        <textarea id="tool-text" placeholder="Example: Employee was installing conduit from a 10-foot stepladder when the ladder shifted; he fell to the concrete floor and fractured his wrist."></textarea>
+        <div class="tool-entry"><div id="tool-guide"></div><div id="tool-say"></div>
+        <textarea id="tool-text" placeholder="Example: Employee was installing conduit from a 10-foot stepladder when the ladder shifted; he fell to the concrete floor and fractured his wrist."></textarea></div>
         <div class="controls" style="margin:.6rem 0 0">
           <button class="primary" id="tool-run" disabled>Code this narrative</button>
           <button class="link" id="tool-example">Insert an example</button>
@@ -755,18 +761,21 @@ const App = (() => {
       'The boom of a concrete pump truck contacted an overhead 13.2 kV power line while the employee was holding the hose.',
       'Employee tripped over an extension cord on the ground floor and landed on his knee, resulting in a contusion.'];
     let exIdx = 0;
+    Guide.mount(el('tool-guide'), el('tool-say')); Guide.act('think', 0, 'One moment, the coder is loading.');
     el('tool-example').onclick = () => { ta.value = EX[exIdx++ % EX.length]; ta.dispatchEvent(new Event('input')); };
-    ta.addEventListener('input', () => { const w = ta.value.trim().split(/\s+/).filter(Boolean).length; el('tool-count').textContent = w ? `${w} words` : ''; });
+    ta.addEventListener('input', () => { const w = ta.value.trim().split(/\s+/).filter(Boolean).length; el('tool-count').textContent = w ? `${w} words` : '';
+      if (!run.disabled) Guide.act(w ? 'read' : 'point', w ? 2600 : 0, !w ? 'Type or paste an incident narrative here.' : w < 8 ? 'A sentence or two on what happened is enough.' : 'Ready when you are: Code this narrative.'); });
     ['tf-mech', 'tf-energy', 'tf-he'].forEach(id => el(id).onchange = renderDownstream);
     run.onclick = async () => {
       const text = ta.value.trim();
-      if (!text) { status.textContent = 'Paste a narrative first.'; return; }
+      if (!text) { status.textContent = 'Paste a narrative first.'; Guide.act('no', 1600, 'There is no narrative yet.'); return; }
+      Guide.act('think', 0, 'Reading the narrative.');
       run.disabled = true; status.className = 'status'; status.textContent = 'Coding…';
       try {
         const r = await NarrativeModel.predict(text);
         showPrediction(r);
         status.textContent = `Coded in ${fmt.dec(r.ms, 0)} ms (${r.nTokens} tokens${r.truncated ? ', truncated to 256' : ''}).`;
-      } catch (e) { status.className = 'status error'; status.textContent = 'Inference failed: ' + e.message; }
+      } catch (e) { status.className = 'status error'; status.textContent = 'Inference failed: ' + e.message; Guide.act('no', 2000, 'The coder failed on this text.'); }
       run.disabled = false;
     };
     // load the model when the page is first opened
@@ -777,7 +786,8 @@ const App = (() => {
       else if (p.stage === 'tokenizer') status.textContent = 'Loading the vocabulary…';
       else if (p.stage === 'model') { status.textContent = `Downloading the model: ${(p.loaded / 1048576).toFixed(1)} MB${p.total ? ' of ' + (p.total / 1048576).toFixed(1) + ' MB' : ''}`; bar.style.width = (p.total ? p.fraction * 100 : 50) + '%'; }
       else if (p.stage === 'session') { status.textContent = 'Initializing the inference session…'; bar.style.width = '100%'; }
-    }).then(() => { status.textContent = 'Model ready. Paste a narrative and click the button.'; prog.hidden = true; run.disabled = false; })
+    }).then(() => { status.textContent = 'Model ready. Paste a narrative and click the button.'; prog.hidden = true; run.disabled = false;
+        Guide.act('wave', 2400, 'Type or paste an incident narrative here.'); setTimeout(() => { if (Guide.state() === 'idle' && !ta.value) Guide.act('point', 3200); }, 2600); })
       .catch(e => { status.className = 'status error'; status.innerHTML = `The model could not be loaded (${esc(e.message)}). You can still choose the codes manually below. <button class="link" id="tool-retry">Retry</button>`; prog.hidden = true;
         el('tool-retry').onclick = () => { rendered.delete('tool'); renderTool(); };
         el('tool-result').hidden = false; renderDownstream(); });
@@ -810,6 +820,7 @@ const App = (() => {
         low: 'low escalation potential: important for frequency and days away, but rarely a precursor of a fatality' }[level];
       const rel = v => v >= 1 ? `${fmt.ratio(v)} times as prevalent` : `only ${fmt.ratio(v)} times as prevalent (${fmt.ratio(1 / v)} times rarer)`;
       const reading = el('tool-reading'); reading.className = 'reading ' + level;
+      Guide.act(level, 5200, { high: 'High potential: check the direct controls.', moderate: 'Moderate potential: confirm the energy source.', low: 'Low escalation potential.' }[level]);
       const full = `Cases coded <b>${mechName[m]}</b> make up ${fmt.pct(row.share_recordable, 1)} of recordables, ${fmt.pct(row.share_severe, 1)} of severe injuries and ${fmt.pct(row.share_fatal, 1)} of fatalities. They are ${rel(erF)} among fatalities as among recordables (95% interval ${fmt.ci(row.ER_fatal_lo, row.ER_fatal_hi)}) and ${rel(erS)} among severe injuries. ` +
         `${fmt.pct(heRow.recordable)} of recordables with this mechanism are high energy, against ${fmt.pct(heRow.fatal)} of fatalities; this case is coded <b>${heName[h].toLowerCase()}</b>. ` +
         (sif == null ? '' : `The SIF potential index for this combination (${mechName[m]}, ${energyName[e]}, ${heName[h].toLowerCase()}) is <b>${fmt.ratio(sif)}</b>: with balanced classes, the model’s odds of a severe or fatal outcome versus a recordable are ${sif >= 1 ? 'above' : 'below'} even. The index uses narrative-derived features only, with fall height and direct-control status set to unknown; it is a likelihood ratio, not a probability for this case. `) +
@@ -827,6 +838,6 @@ const App = (() => {
     }
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();   // deferred scripts run once the document is parsed, so start at once
   return { D, fmt };
 })();
