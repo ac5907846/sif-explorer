@@ -2,7 +2,7 @@
 'use strict';
 
 const App = (() => {
-  const VERSION = '20260922';    // cache-busting query string for every JSON fetch; bump when data/*.json changes
+  const VERSION = '20260923';    // cache-busting query string for every JSON fetch; bump when data/*.json changes
   const D = {};                  // loaded JSON by name
   const rendered = new Set();    // pages already rendered
   const TIERS = ['recordable', 'severe', 'fatal'];
